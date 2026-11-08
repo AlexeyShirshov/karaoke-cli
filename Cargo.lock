@@ -129,7 +129,8 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 [[package]]
 name = "candle-core"
 version = "0.11.1"
-source = "git+https://github.com/huggingface/candle?rev=cfcbd7186d13271843ce7eb41d25659bd0835850#cfcbd7186d13271843ce7eb41d25659bd0835850"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d11c8be87cfbaef9ebb62fb3f850d1fc8e00cc1d11d393fdbe55a4d5c2cdb325"
 dependencies = [
  "byteorder",
  "candle-kernels",
@@ -160,7 +161,8 @@ dependencies = [
 [[package]]
 name = "candle-kernels"
 version = "0.11.1"
-source = "git+https://github.com/huggingface/candle?rev=cfcbd7186d13271843ce7eb41d25659bd0835850#cfcbd7186d13271843ce7eb41d25659bd0835850"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8dc057aec95c3b1a0e595227cd039c1436da596f79ccc9e025ba17d070315851"
 dependencies = [
  "cudaforge",
 ]
@@ -168,7 +170,8 @@ dependencies = [
 [[package]]
 name = "candle-metal-kernels"
 version = "0.11.1"
-source = "git+https://github.com/huggingface/candle?rev=cfcbd7186d13271843ce7eb41d25659bd0835850#cfcbd7186d13271843ce7eb41d25659bd0835850"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e9fdf9f3fb13fb677fec22802f85515e4bdf9a2b8fa153efb5454eced755932"
 dependencies = [
  "block2",
  "half",
@@ -183,7 +186,8 @@ dependencies = [
 [[package]]
 name = "candle-nn"
 version = "0.11.1"
-source = "git+https://github.com/huggingface/candle?rev=cfcbd7186d13271843ce7eb41d25659bd0835850#cfcbd7186d13271843ce7eb41d25659bd0835850"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "437fabe77547c2447c7bdf3cc946e19db29a2832440176b419f77c80b0a9a05e"
 dependencies = [
  "candle-core",
  "candle-metal-kernels",
@@ -200,7 +204,7 @@ dependencies = [
 [[package]]
 name = "candle-roformer"
 version = "0.1.0"
-source = "git+https://github.com/AlexeyShirshov/candle-roformer?rev=ee115f627ddfb32eb809d12d519522e85b540186#ee115f627ddfb32eb809d12d519522e85b540186"
+source = "git+https://github.com/AlexeyShirshov/candle-roformer?rev=1f823c41414249472617d8b275fee17dd8d9ef33#1f823c41414249472617d8b275fee17dd8d9ef33"
 dependencies = [
  "candle-core",
  "candle-nn",
@@ -219,7 +223,8 @@ dependencies = [
 [[package]]
 name = "candle-transformers"
 version = "0.11.1"
-source = "git+https://github.com/huggingface/candle?rev=cfcbd7186d13271843ce7eb41d25659bd0835850#cfcbd7186d13271843ce7eb41d25659bd0835850"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b1e1abeac23d7df4f94e8a3852b3dbb661d332e37c3bef479507bac867187b2"
 dependencies = [
  "byteorder",
  "candle-core",

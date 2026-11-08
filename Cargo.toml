@@ -25,13 +25,13 @@ metal = ["candle-roformer/metal"]
 [dependencies]
 # The crate is the product; this repository only adds the file-level front end.
 # Bump `rev` after every change that must reach the CLI.
-candle-roformer = { git = "https://github.com/AlexeyShirshov/candle-roformer", rev = "ee115f627ddfb32eb809d12d519522e85b540186" }
+candle-roformer = { git = "https://github.com/AlexeyShirshov/candle-roformer", rev = "1f823c41414249472617d8b275fee17dd8d9ef33" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [dev-dependencies]
-# Same Candle revision as candle-roformer pins, so the test-only types
+# Same Candle version as candle-roformer resolves, so the test-only types
 # (`VarBuilder`, the Whisper model) are the ones the crate is compiled against.
-candle-core = { version = "0.11.1", git = "https://github.com/huggingface/candle", rev = "cfcbd7186d13271843ce7eb41d25659bd0835850" }
-candle-nn = { version = "0.11.1", git = "https://github.com/huggingface/candle", rev = "cfcbd7186d13271843ce7eb41d25659bd0835850" }
-candle-transformers = { version = "0.11.1", git = "https://github.com/huggingface/candle", rev = "cfcbd7186d13271843ce7eb41d25659bd0835850" }
+candle-core = "0.11.1"
+candle-nn = "0.11.1"
+candle-transformers = "0.11.1"
