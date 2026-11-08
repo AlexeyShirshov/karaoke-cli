@@ -1,0 +1,37 @@
+[package]
+name = "karaoke-cli"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Offline CLI for vocal separation and lyric transcription built on candle-roformer"
+readme = "README.md"
+repository = "https://github.com/AlexeyShirshov/karaoke-cli"
+keywords = ["karaoke", "vocal-separation", "whisper", "transcription", "cli"]
+categories = ["multimedia::audio", "command-line-utilities"]
+
+[lib]
+name = "karaoke_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "karaoke-cli"
+path = "src/main.rs"
+
+[features]
+default = []
+cuda = ["candle-roformer/cuda"]
+metal = ["candle-roformer/metal"]
+
+[dependencies]
+# The crate is the product; this repository only adds the file-level front end.
+# Bump `rev` after every change that must reach the CLI.
+candle-roformer = { git = "https://github.com/AlexeyShirshov/candle-roformer", rev = "ee115f627ddfb32eb809d12d519522e85b540186" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+# Same Candle revision as candle-roformer pins, so the test-only types
+# (`VarBuilder`, the Whisper model) are the ones the crate is compiled against.
+candle-core = { version = "0.11.1", git = "https://github.com/huggingface/candle", rev = "cfcbd7186d13271843ce7eb41d25659bd0835850" }
+candle-nn = { version = "0.11.1", git = "https://github.com/huggingface/candle", rev = "cfcbd7186d13271843ce7eb41d25659bd0835850" }
+candle-transformers = { version = "0.11.1", git = "https://github.com/huggingface/candle", rev = "cfcbd7186d13271843ce7eb41d25659bd0835850" }
