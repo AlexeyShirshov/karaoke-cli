@@ -379,3 +379,122 @@ fn batch_runs_valid_audio_after_corrupt_audio_and_aggregates_failures() {
     assert!(!output_dir.join("b-damaged_(Vocals)_tiny_sep.wav").exists());
     assert!(output_dir.join("c-valid_(Vocals)_tiny_sep.wav").exists());
 }
+
+#[test]
+fn custom_names_cover_partial_outputs_sidecars_and_path_rejection() {
+    let dir = tmpdir("custom_names");
+    let separator_assets = tiny_separator_assets(&dir);
+    let separator = load_separator_with_options(
+        &separator_assets,
+        DeviceChoice::Cpu,
+        InferenceOverrides {
+            normalization: 0.0,
+            amplification: 0.0,
+            invert_spect: false,
+        },
+    )
+    .unwrap();
+    let input = dir.join("song.wav");
+    write_wav_f32(
+        &input,
+        &AudioBuffer {
+            sample_rate: 44_100,
+            channels: 1,
+            planar: (0..2000).map(|i| (i as f32 * 0.05).sin() * 0.4).collect(),
+        },
+    )
+    .unwrap();
+    let whisper = synth_whisper_assets("custom_names_whisper");
+    let output_dir = dir.join("custom-out");
+    let result = run_file(
+        &separator,
+        &FileRequest {
+            input: input.clone(),
+            output_dir: output_dir.clone(),
+            model_stem: "tiny_sep".into(),
+            overwrite: false,
+            custom_output_names: HashMap::from([("vocals".into(), "lead-take".into())]),
+            single_stem: None,
+            format: OutputFormat::Wav,
+            bitrate: None,
+            sample_rate: None,
+            start_seconds: None,
+            limit_seconds: None,
+            whisper: Some((whisper, TranscribeOptions::default())),
+        },
+    )
+    .unwrap();
+
+    assert!(result
+        .stems
+        .iter()
+        .any(|stem| stem.name.eq_ignore_ascii_case("vocals")
+            && stem.path.file_name().unwrap() == "lead-take.wav"));
+    assert!(result
+        .stems
+        .iter()
+        .any(|stem| stem.name.eq_ignore_ascii_case("instrumental")
+            && stem.path.file_name().unwrap() == "song_(Instrumental)_tiny_sep.wav"));
+    assert_eq!(
+        result.text.as_ref().unwrap().file_name().unwrap(),
+        "lead-take.txt"
+    );
+    assert_eq!(
+        result.json.as_ref().unwrap().file_name().unwrap(),
+        "lead-take.json"
+    );
+    assert!(result.text.as_ref().unwrap().is_file());
+    assert!(result.json.as_ref().unwrap().is_file());
+
+    let invalid_mappings = [
+        (
+            "unknown stem",
+            HashMap::from([("guitar".into(), "mix".into())]),
+            "unknown stem",
+        ),
+        (
+            "absolute path",
+            HashMap::from([("vocals".into(), "/tmp/mix".into())]),
+            "invalid output name",
+        ),
+        (
+            "parent traversal",
+            HashMap::from([("vocals".into(), "../mix".into())]),
+            "invalid output name",
+        ),
+        (
+            "directory separator",
+            HashMap::from([("vocals".into(), "sub/mix".into())]),
+            "invalid output name",
+        ),
+    ];
+    for (case, mapping, expected_error) in invalid_mappings {
+        let rejected_output = dir.join(format!("rejected-{case}"));
+        let error = run_file(
+            &separator,
+            &FileRequest {
+                input: input.clone(),
+                output_dir: rejected_output.clone(),
+                model_stem: "tiny_sep".into(),
+                overwrite: false,
+                custom_output_names: mapping,
+                single_stem: None,
+                format: OutputFormat::Wav,
+                bitrate: None,
+                sample_rate: None,
+                start_seconds: None,
+                limit_seconds: None,
+                whisper: None,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            error.to_string().contains(expected_error),
+            "{case}: {error}"
+        );
+        assert!(
+            !rejected_output.exists(),
+            "{case} must not create output directories"
+        );
+    }
+}

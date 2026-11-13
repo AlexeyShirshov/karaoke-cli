@@ -529,9 +529,9 @@ fn run() -> Result<i32, String> {
             None => resolve_in(dir, default),
         };
         let assets = LocalWhisperAssets::new(
-            resolve(&args.whisper_model, "model.safetensors"),
             resolve(&args.whisper_config, "config.json"),
             resolve(&args.whisper_tokenizer, "tokenizer.json"),
+            resolve(&args.whisper_model, "model.safetensors"),
         );
         let language = match args.language.as_deref() {
             None | Some("auto") => None,
@@ -645,6 +645,13 @@ mod cli_tests {
         assert_eq!(parsed.list_format, "json");
         assert_eq!(parsed.custom_output_names["vocals"], "my-song");
         assert_eq!(parsed.single_stem.as_deref(), Some("Vocals"));
+    }
+
+    #[test]
+    fn malformed_custom_names_json_is_rejected_with_context() {
+        let error =
+            parse_args(&["--custom_output_names".into(), r#"{"vocals":}"#.into()]).unwrap_err();
+        assert!(error.contains("invalid --custom_output_names JSON"));
     }
 
     #[test]
