@@ -381,10 +381,22 @@ fn resolve_in(dir: Option<&str>, name: &str) -> PathBuf {
         .unwrap_or_else(|| path.to_path_buf())
 }
 
-fn print_env_info(model_dir: Option<&str>) {
+fn env_info_report(
+    model_dir: Option<&str>,
+    model_file: Option<&str>,
+    config_file: Option<&str>,
+) -> String {
     let configured_model_dir = model_dir
         .map(str::to_owned)
         .or_else(|| env::var("CANDLE_ROFORMER_MODEL_DIR").ok());
+    let resolved_model = model_file.map(|path| resolve_in(model_dir, path));
+    let resolved_config = config_file
+        .map(|path| resolve_in(model_dir, path))
+        .or_else(|| {
+            resolved_model
+                .as_ref()
+                .map(|path| path.with_extension("yaml"))
+        });
     let parallelism = std::thread::available_parallelism()
         .map(|value| value.get().to_string())
         .unwrap_or_else(|_| "unknown".into());
@@ -392,42 +404,63 @@ fn print_env_info(model_dir: Option<&str>) {
         Ok(_) => "available",
         Err(_) => "unavailable",
     };
-    println!("CLI version: {VERSION}");
-    println!("karaoke-cli package version: {VERSION}");
-    println!("candle-roformer version: {CANDLE_ROFORMER_VERSION}");
-    println!("candle-roformer revision: {CANDLE_ROFORMER_GIT_REVISION}");
-    println!("candle-core version: {CANDLE_CORE_VERSION}");
-    println!(
-        "compiled features: cuda={}, metal={}",
-        cfg!(feature = "cuda"),
-        cfg!(feature = "metal")
-    );
-    println!("CPU device: {cpu}");
-    println!("available parallelism: {parallelism}");
-    println!(
-        "model search path: {}",
-        configured_model_dir
-            .as_deref()
-            .unwrap_or("explicit local paths only; no implicit model downloads")
-    );
+    let mut lines = vec![
+        format!("CLI version: {VERSION}"),
+        format!("karaoke-cli package version: {VERSION}"),
+        format!("candle-roformer version: {CANDLE_ROFORMER_VERSION}"),
+        format!("candle-roformer revision: {CANDLE_ROFORMER_GIT_REVISION}"),
+        format!("candle-core version: {CANDLE_CORE_VERSION}"),
+        format!(
+            "compiled features: cuda={}, metal={}",
+            cfg!(feature = "cuda"),
+            cfg!(feature = "metal")
+        ),
+        format!("CPU device: {cpu}"),
+        format!("available parallelism: {parallelism}"),
+        format!(
+            "model search path: {}",
+            configured_model_dir
+                .as_deref()
+                .unwrap_or("explicit local paths only; no implicit model downloads")
+        ),
+        format!(
+            "resolved model checkpoint: {}",
+            resolved_model
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "not specified (not required for --env_info)".into())
+        ),
+        format!(
+            "resolved model config: {}",
+            resolved_config
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "not specified (not required for --env_info)".into())
+        ),
+    ];
     if cfg!(feature = "cuda") {
-        println!(
+        lines.push(format!(
             "CUDA device: {}",
             match DeviceChoice::Cuda.resolve() {
                 Ok(_) => "available",
                 Err(_) => "unavailable",
             }
-        );
+        ));
     }
     if cfg!(feature = "metal") {
-        println!(
+        lines.push(format!(
             "Metal device: {}",
             match DeviceChoice::Metal.resolve() {
                 Ok(_) => "available",
                 Err(_) => "unavailable",
             }
-        );
+        ));
     }
+    lines.join("\n") + "\n"
+}
+
+fn print_env_info(model_dir: Option<&str>, model_file: Option<&str>, config_file: Option<&str>) {
+    print!("{}", env_info_report(model_dir, model_file, config_file));
 }
 
 fn list_models(args: &Args) -> Result<(), String> {
@@ -457,7 +490,11 @@ fn run() -> Result<i32, String> {
     log::set_max_level(args.log_level);
 
     if args.env_info {
-        print_env_info(args.model_file_dir.as_deref());
+        print_env_info(
+            args.model_file_dir.as_deref(),
+            args.model.as_deref(),
+            args.config.as_deref(),
+        );
         return Ok(0);
     }
     if args.list_models {
@@ -658,8 +695,35 @@ mod cli_tests {
     fn debug_is_an_info_backend_alias_and_invalid_levels_fail() {
         assert_eq!(parse_level("info").unwrap(), LevelFilter::Info);
         assert!(parse_level("verboseish").is_err());
+        assert_eq!(parse_args(&[]).unwrap().log_level, LevelFilter::Info);
+        assert_eq!(
+            parse_args(&["--log_level".into(), "warn".into()])
+                .unwrap()
+                .log_level,
+            LevelFilter::Warn
+        );
         let parsed = parse_args(&["--debug".into()]).unwrap();
         assert!(parsed.debug);
         assert_eq!(parsed.log_level, LevelFilter::Debug);
+    }
+
+    #[test]
+    fn env_info_reports_versions_features_and_resolved_paths_without_loading_assets() {
+        let report = env_info_report(Some("/tmp/model-root"), Some("separator.safetensors"), None);
+        assert!(report.contains(&format!("CLI version: {VERSION}")));
+        assert!(report.contains(&format!(
+            "candle-roformer version: {CANDLE_ROFORMER_VERSION}"
+        )));
+        assert!(report.contains(&format!("candle-core version: {CANDLE_CORE_VERSION}")));
+        assert!(report.contains(&format!(
+            "compiled features: cuda={}, metal={}",
+            cfg!(feature = "cuda"),
+            cfg!(feature = "metal")
+        )));
+        assert!(report.contains("available parallelism:"));
+        assert!(report.contains("CPU device: available"));
+        assert!(report.contains("resolved model checkpoint: /tmp/model-root/separator.safetensors"));
+        assert!(report.contains("resolved model config: /tmp/model-root/separator.yaml"));
+        assert!(!report.contains("API_KEY"));
     }
 }
