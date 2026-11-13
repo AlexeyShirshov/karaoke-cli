@@ -7,7 +7,7 @@
 - cycle: `N=1` · revision: `r=1` · attempt: `n=2/3`
 - scope: implementation of all requirements in open repository tickets `#1`–`#7`, dependency update to `candle-roformer` `1.0`, documentation and authorized local commits · status path: `.pdca/status/open-issues-1.md` · evidence root: `.pdca/open-issues/rv1/`
 - goal: deliver the updated package and CLI with all seven open tickets implemented and confirmed, documentation updated, and changes committed locally — the §PLAN record and §Original task are authoritative
-- phase: `DO` · record: `open` · outcome: `candidate pending independent CHECK`
+- phase: `ACT` · record: `completed` · outcome: `accepted` — whole-goal CHECK accepted; cycle closed; next transition `EXIT`
 - source: user request · context refs: `/home/alex/sources/karaoke-cli`; baseline `main` at `a1ea0a4cea0d7d19142531d91e91469e731af2e8`
 - criteria: `AC-1`–`AC-9` — exact text in §PLAN record `r1` (source: this file, `## PLAN record` → `### r1`)
 
@@ -328,21 +328,49 @@ Evidence-only execution state: re-anchored at the user-specified HEAD `1460538ac
 
 ## CHECK record
 
-CHECK finding supplied for this rework (the handoff included this finding but no overall matrix/verdict; none is reconstructed):
+Final whole-goal CHECK report (verbatim, source: user-supplied raw report):
 
-**ENV-PROVENANCE-R1-01 — major, confirmed; AC-5:** `build.rs` runs `git rev-parse` in the CLI's `CARGO_MANIFEST_DIR` and assigns the result to `CANDLE_ROFORMER_GIT_REVISION`. The CLI prints it as the dependency's revision. The old observed output `a1ea0a4cea0d` matches exactly this mistake. The green env-info test does not check the revision's provenance.
+```text
+CHECK: accepted. Counters N=1, r=1, n=2/3. Accepted HEAD 01e6d69f0778f3510508c3eaa765a5a0910b2125; product unchanged since 624d456. Criteria cover the original task and tickets #1–#7, measurable, non-contradictory.
+Matrix: AC-1 met (registry dependency 1.0.0, no path overrides; locked/offline suite passes); AC-2 met (directory walk/sort, preflight, overwrite, continue-after-error, summary); AC-3 met (partial maps, shared sidecar base, rejects unknown stems/unsafe paths without output files); AC-4 met (local catalogue, filter/limit, pretty/JSON, fixture schema assertions); AC-5 met (fixed sources and regression assertions independently checked: versions/source from lockfile, CLI git HEAD no longer attributed to the dependency; rest of diagnostics preserved); AC-6 met (four named buffers, independent stems, convenience API, CLI single-stem); AC-7 met (WAV f32, exact WAV/FLAC rate/count, MP3 duration ≤0.05 s, resampling, rejections, dependency audit); AC-8 met (defaults 0.9/0.0/false, residual ≤1e-5, normalized-mode assertions, amplification, spectral inversion); AC-9 met (docs verified; changes committed, post-fix delta only .pdca/**; independent scout: exact HEAD, clean, ahead 15, origin unchanged).
+Runs: `env CMAKE_POLICY_VERSION_MINIMUM=3.5 CARGO_BUILD_JOBS=1 /home/alex/.cargo/bin/cargo test --offline --locked` exit 0, 21 passed / 0 failed (7 lib + 6 CLI + 8 integration, 0 doc-tests); `cargo fmt --all -- --check` exit 0.
+Findings: ENV-PROVENANCE-R1-01 refuted in the current candidate (fixed and verified); FINAL-AUDIT-R1-01 refuted by the independent live observation; no new findings. Limits: synthetic CPU/offline scenarios only; real model quality and GPU not tested; git observations establish the final state, not a full host/GitHub history audit. Confidence high within the stated method. Next transition: ACT. This whole-goal CHECK covers AC-1–AC-9.
+```
 
 ## ACT record
 
-`pending`
+Outcome: accepted, as determined by the final whole-goal CHECK above; AC-1–AC-9 are recorded there as met. Accepted product fix: `624d456f711e3c235a40483338df9196777f88c3`. Accepted snapshot/evidence HEAD: `01e6d69f0778f3510508c3eaa765a5a0910b2125`, 15 commits ahead of `origin/main` at `a1ea0a4cea0d7d19142531d91e91469e731af2e8`; the accepted snapshot was clean and was not pushed. The accepted verification is the CHECK-reported locked/offline suite, exit 0 (21/21; 7 library, 6 CLI, 8 integration, 0 doc-tests) and fmt check exit 0. ACT changed only this `.pdca/` status record; no product/test changes and no tests were run in ACT. Limits remain those stated in CHECK: synthetic CPU/offline scenarios only, no real model-quality/GPU validation, and no full host/GitHub history audit. Next transition: `EXIT`; this cycle is closed as accepted and is not reopened.
 
 ## Lessons learned
 
-`pending: retrospective not yet conducted`
+Retrospective report (verbatim, source: user-supplied raw `pdca-check` retrospective report):
+
+````markdown
+## Ретроспектива — N=1, r=1, n=2/3
+
+1. **Категория: доказательства и передача результата.**
+   Неполные пакеты вызвали несколько возвратов: сначала отсутствовали исходные тикеты и assertions, позднее — снимок исправления и подтверждение точного финального HEAD. Помогли полный diff, замороженные исходники и независимое post-commit наблюдение.
+   **На будущее:** собирать доказательства вместе с результатом, явно различая product commit, evidence commit и момент наблюдения чистого дерева.
+   **Источники:** предыдущие CHECK-отчёты; `check-r1/`; `attempt-3/commit-delta.md`.
+
+2. **Категория: достоверность диагностики.**
+   Успешные тесты первоначально не обнаружили, что revision зависимости фактически был HEAD репозитория CLI. Исправление связало диагностические значения с Cargo.lock; regression assertions проверяют версии, источник и отсутствие ложной метки revision.
+   **На будущее:** проверять происхождение диагностических данных, а не только наличие строк в выводе.
+   **Источники:** `ENV-PROVENANCE-R1-01`; `attempt-3/fix.diff`; `attempt-3/snapshots/src/main.rs:781–815`.
+
+3. **Категория: функциональные тесты.**
+   Синтетические модели позволили проверить многостемовый API, обработку ошибок, sidecars и численные инварианты без больших весов. CLI round-trip выявил ошибку короткого FLAC; история также зафиксировала запуски с нулём выбранных тестов. Итоговый полный запуск исключил такую ложную уверенность: 21 тест, без фильтрации.
+   **На будущее:** сочетать небольшие unit-тесты с фактическим CLI round-trip и учитывать число реально выполненных тестов.
+   **Источники:** статус → `Defect history`; `check-r1/snapshot/tests/flow.rs`; `attempt-2/cargo-test.stdout`.
+
+**Пределы и неопределённость:** анализ использует существующие отчёты и ранее прочитанные артефакты; новых проверок не проводилось. Полный текст экспертного решения в текущих входах отсутствует — его мотивы не реконструировались. Доказательства не характеризуют качество реальных моделей, GPU или полную историю действий на хосте.
+
+**Сигнал: ретроспективный анализ завершён.** Отчёт этой ролью не записывался.
+````
 
 ## Revision history
 
-`none` — no plan revision has occurred.
+`none` — no plan revision occurred; this cycle is closed at r1.
 
 ## Defect history
 
@@ -355,7 +383,8 @@ cli-whisper-assets-order | r1/n1 | 1 | `.pdca/open-issues/rv1/attempts/cli-ticke
 ticket4-env-info-stale-binary | r1/n1 | 1 | `.pdca/open-issues/rv1/attempts/cli-ticket4-env-info-resolved-paths.log` returned exit 0 but lacked new path lines because it invoked the pre-change binary → rebuilt with `.pdca/open-issues/rv1/attempts/cargo-build-ticket4-cli.log` and reran; resolved by `.pdca/open-issues/rv1/attempts/cli-ticket4-env-info-resolved-paths-after-rebuild.log` (resolved paths shown, sentinel secret absent); no recurrence
 ticket6-short-flac-cli-roundtrip | r1/n1 | 1 | `.pdca/open-issues/rv1/attempts/cargo-test-ticket6-cli-codecs.log` FLAC CLI output for 2177 resampled frames failed project `read_audio` with `unexpected end of file`; root cause was fixed-block encoder metadata using the 4096 default for a one-short-frame stream → bound FLAC frame size to actual sample count (minimum FLAC block size) in `src/pipeline.rs`; resolved by `.pdca/open-issues/rv1/attempts/cargo-test-ticket6-cli-codecs-after-blocksize-fix.log` (1/1 pass, FLAC and MP3 outputs read at 48 kHz; FLAC exact resampled sample count); no recurrence
 ticket7-cli-level-test-vacuous-filter | r1/n1 | 1 | `.pdca/open-issues/rv1/attempts/cargo-test-ticket7-cli-level-flags.log` exited 0 but selected 0 cases because `--exact` omitted `cli_tests::` module prefix → reran with the fully qualified name; `.pdca/open-issues/rv1/attempts/cargo-test-ticket7-cli-level-flags-qualified.log` confirms 1 selected/passed; resolved, no recurrence
-ENV-PROVENANCE-R1-01 | r1/n2 | 1 | CHECK finding supplied verbatim in `.pdca/status/open-issues-1.md` → `build.rs` reports CLI repo HEAD as registry dependency revision; removed Git lookup/revision env, now derive version/source from Cargo.lock in `build.rs` and test report against lock in `src/main.rs`; `.pdca/open-issues/rv1/attempt-2/cargo-test.stdout`, `env-info.stdout` | no recurrence observed after one fix; no escalation
+ENV-PROVENANCE-R1-01 | r1/n2 | 1 | CHECK finding supplied verbatim above → `build.rs` reported CLI repo HEAD as registry dependency revision; removed Git lookup/revision env, now derive version/source from Cargo.lock in `build.rs` and test report against lock in `src/main.rs`; `.pdca/open-issues/rv1/attempt-2/cargo-test.stdout`, `env-info.stdout`, `.pdca/open-issues/rv1/attempt-3/fix.diff`, `regression-assertions.md` | final accepted CHECK says refuted in current candidate after one fix; no recurrence; no escalation
+FINAL-AUDIT-R1-01 | r1/n2 | 0 | final accepted CHECK report above: refuted by independent live observation; no actionable defect or fix is recorded in that report | no recurrence/escalation reported
 
 ## Changed files
 
@@ -388,10 +417,11 @@ ENV-PROVENANCE-R1-01 | r1/n2 | 1 | CHECK finding supplied verbatim in `.pdca/sta
 - `.pdca/status/karaoke-cli-open-issues.md`, `.pdca/status/karaoke-cli-open-issues/planner-plan-r1.md`, `.pdca/status/karaoke-cli-open-issues/preparation-r1.md` → superseded, never-run orchestrator preparation records for this same task; preserved and included in the one remaining `.pdca/` commit.
 - `Cargo.toml`, `Cargo.lock`, `README.md`, `src/lib.rs`, `src/main.rs`, `src/pipeline.rs`, `src/catalog.rs`, `build.rs`, `data/models.json` → initial implementation/README changes, committed in `1ed3cb908dea932196fcef99fbbbfd96135cac84`; `src/main.rs` and `tests/flow.rs` Whisper/custom-name correction and tests committed in `8920434c6afac4457006dbeeace989972384f3e5`; `src/catalog.rs` and `tests/fixtures/model-catalog.json` committed in `74b3e76146ae0e40a196ad124b10c13c7b5fb73a`; #4 diagnostics in `src/main.rs` committed in `8345e3b885e2324a431bcd61068eec0257205a1d`; #5 public `NamedStems`/`separate_audio` API in `src/lib.rs`/`src/pipeline.rs` and synthetic 1-/4-stem CLI tests in `tests/flow.rs` committed in `253e07a776e0449f12ab0923c3cf224cb18afc1e`; #6 codec support/tests and README codec section in `src/main.rs`, `src/pipeline.rs`, `tests/flow.rs`, `README.md`, plus `docs/dependency-audit.md`, committed in `1f98eb4deee4e0709e227ebe4ece376a4eeeec9f`; #7 level defaults/residual tests and complete README/dependency-audit semantics committed in `e4fe915b1c2fc1834f639974250e5f450e3ea3b4`.
 - `src/catalog.rs`, `tests/fixtures/model-catalog.json` → catalogue fixture and filter/limit/pretty/JSON schema tests, committed in `74b3e76146ae0e40a196ad124b10c13c7b5fb73a`.
+- `.pdca/status/open-issues-1.md` → ACT closure: accepted CHECK report and retrospective recorded verbatim, current/defect/Git state finalized; ACT changed no product or test files.
 
 ## Git state
 
-Status path: `.pdca/status/open-issues-1.md` — created this cycle · tracked, updated for evidence-only DO while preserving `N=1, r=1, n=2/3`. Baseline: branch `main`, `HEAD` `a1ea0a4cea0d7d19142531d91e91469e731af2e8`. Product commits include `1ed3cb908dea932196fcef99fbbbfd96135cac84`, `8920434c6afac4457006dbeeace989972384f3e5`, `74b3e76146ae0e40a196ad124b10c13c7b5fb73a`, `8345e3b885e2324a431bcd61068eec0257205a1d`, `253e07a776e0449f12ab0923c3cf224cb18afc1e`, `1f98eb4deee4e0709e227ebe4ece376a4eeeec9f`, and `e4fe915b1c2fc1834f639974250e5f450e3ea3b4`; evidence-only re-anchor was `1460538ac67dac77f0be1b940e6b84897be4db6f`, product fix `624d456f711e3c235a40483338df9196777f88c3`, pre-fix product `ebb145264999aae589be3d6c8f79ee68b2afae90`, origin `a1ea0a4cea0d7d19142531d91e91469e731af2e8`. Product diff `ebb1452..624d456` is `build.rs`, `src/main.rs`; the final `624d456..HEAD` path list is `.pdca/**` only. The single evidence commit and this status update are included together; the requested path/stat outputs were verified and final worktree is clean, main ahead 15. Exact HEAD is supplied by `git rev-parse HEAD` in the DO report. No changes outside the repository, no push, no test rerun, no counter increment.
+Status path: `.pdca/status/open-issues-1.md` — created this cycle · tracked, modified in ACT and committed locally under the user's autocommit authorization. Baseline: branch `main`, `HEAD` `a1ea0a4cea0d7d19142531d91e91469e731af2e8`. Accepted snapshot/evidence HEAD `01e6d69f0778f3510508c3eaa765a5a0910b2125` is 15 commits ahead of `origin/main` `a1ea0a4cea0d7d19142531d91e91469e731af2e8`; it was clean and unpushed. Accepted product fix is `624d456f711e3c235a40483338df9196777f88c3`; pre-fix product is `ebb145264999aae589be3d6c8f79ee68b2afae90`; the product delta is only `build.rs` and `src/main.rs`, and all later paths are `.pdca/**`. ACT's only change is this status file; no product/test changes and no tests run. Final post-ACT commit HEAD/status/origin are returned in the ACT report. No push.
 
 ## Progress log
 
@@ -439,3 +469,4 @@ Status path: `.pdca/status/open-issues-1.md` — created this cycle · tracked, 
 2026-11-13T23:29:25Z | DO | revision r1 | attempt n2/3 | Evidence-only DO continuation re-anchored at HEAD `1460538ac67dac77f0be1b940e6b84897be4db6f`; user-specified product fix/pre-fix identities confirmed, with no product drift. No test/product edits or suite rerun; no attempt increment. Prepared `attempt-3` snapshots, hashes, diff and AC-5 artifact drafts; staged-tree delta and the single PDCA-only commit remain pending. | `.pdca/open-issues/rv1/attempt-3/`; `.pdca/status/open-issues-1.md`
 2026-11-13T23:33:22Z | DO | revision r1 | attempt n2/3 | Staged-tree projection contains only `.pdca/**`; `624d456..staged-tree` path list is 11 PDCA paths; `ebb1452..staged-tree` list has 72 paths, with non-PDCA delta limited to `build.rs` and `src/main.rs` (89 insertions, 44 deletions). These outputs are in `attempt-3/commit-delta.md`; post-commit HEAD-based verification and the one evidence commit remain pending. No tests rerun and no counter increment. | `.pdca/open-issues/rv1/attempt-3/commit-delta.md`; staged index
 2026-11-13T23:36:20Z | DO | revision r1 | attempt n2/3 | The single `.pdca/**` evidence commit was created with the requested subject; exact HEAD-based `git diff --name-only` outputs matched `commit-delta.md`, non-PDCA stat remained `build.rs` and `src/main.rs` (89 insertions, 44 deletions), and `git status --porcelain` exited 0 with 0 bytes; worktree clean, main ahead 15. No tests rerun or attempt increment; final report returns the exact resulting HEAD. | `.pdca/open-issues/rv1/attempt-3/commit-delta.md`; `.pdca/open-issues/rv1/attempt-3/post-commit-status.porcelain`
+2026-11-13T23:45:04Z | ACT | revision r1 | attempt n2/3 | Whole-goal CHECK and retrospective recorded verbatim; outcome accepted, all AC-1–AC-9 met per CHECK, cycle closed with next transition EXIT. Accepted snapshot HEAD `01e6d69f0778f3510508c3eaa765a5a0910b2125`; status-only local commit pending. No product/test changes or tests in ACT. | `.pdca/status/open-issues-1.md`; `.pdca/open-issues/rv1/attempt-3/commit-delta.md`; `.pdca/open-issues/rv1/attempt-2/cargo-test.result`; `.pdca/open-issues/rv1/attempt-2/cargo-fmt-check.result`
