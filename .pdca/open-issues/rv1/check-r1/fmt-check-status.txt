@@ -1,0 +1,4 @@
+Command: /home/alex/.cargo/bin/cargo fmt --all -- --check
+Exit status: 0
+Result: passed
+Log: .pdca/open-issues/rv1/check-r1/fmt-check.log

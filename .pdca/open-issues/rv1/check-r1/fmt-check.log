@@ -1,5 +1,25 @@
-Command: cargo fmt --all -- --check
+Command: /home/alex/.cargo/bin/cargo fmt --all -- --check
+Shell: bash 5.1.16(1)-release
+Environment at invocation (relevant exported variables):
+PWD=/home/alex/sources/karaoke-cli
+PATH=/home/alex/.bun/bin:/home/alex/.dotnet:/home/alex/.dotnet/tools:/home/alex/.opencode/bin:/home/alex/.local/bin:/home/alex/.local/bin:/home/alex/.bun/bin:/home/alex/.dotnet:/home/alex/.dotnet/tools:/home/alex/.opencode/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/usr/lib/wsl/lib:/mnt/c/Program\ Files\ \(x86\)/oh-my-posh/bin/:/mnt/c/WINDOWS/system32:/mnt/c/WINDOWS:/mnt/c/WINDOWS/System32/Wbem:/mnt/c/WINDOWS/System32/WindowsPowerShell/v1.0/:/mnt/c/WINDOWS/System32/OpenSSH/:/mnt/c/Program\ Files/RedHat/Podman/:/mnt/c/Program\ Files/dotnet/:/mnt/c/Program\ Files/Go/bin:/mnt/c/Program\ Files/PowerShell/7/:/mnt/c/Program\ Files/Git/cmd:/mnt/c/Users/user/AppData/Local/Programs/oh-my-posh/bin/:/mnt/c/Users/user/AppData/Local/Microsoft/WindowsApps:/mnt/c/Users/user/AppData/Local/Programs/Microsoft\ VS\ Code/bin:/mnt/c/Users/user/AppData/Local/Programs/oh-my-posh/bin:/mnt/c/Users/user/.dotnet/tools:/mnt/c/Users/user/AppData/Local/Microsoft/WinGet/Packages/Docker.DockerCompose_Microsoft.Winget.Source_8wekyb3d8bbwe:/mnt/c/Users/user/AppData/Local/Microsoft/WinGet/Packages/junegunn.fzf_Microsoft.Winget.Source_8wekyb3d8bbwe:/mnt/c/Users/user/go/bin:/mnt/c/Users/user/AppData/Local/Microsoft/WinGet/Packages/JesseDuffield.Lazydocker_Microsoft.Winget.Source_8wekyb3d8bbwe:/mnt/c/Users/user/AppData/Local/DockerSandboxes/bin/:/mnt/c/Users/user/AppData/Local/Programs/Microsoft\ VS\ Code/bin/copilot-shim:/snap/bin
+HOME=/home/alex
+SHELL=/bin/bash
+LANG=C.UTF-8
+LC_ALL=<unset>
+TERM=xterm-256color
+CARGO_HOME=<unset>
+RUSTUP_HOME=<unset>
+RUSTUP_TOOLCHAIN=<unset>
+RUSTFLAGS=<unset>
+RUSTC=<unset>
+RUSTFMT=<unset>
+CARGO_ENCODED_RUSTFLAGS=<unset>
 
-/bin/bash: line 5: cargo: command not found
+--- stdout ---
+[empty]
 
-Exit status: 127
+--- stderr ---
+[empty]
+
+Exit status: 0
