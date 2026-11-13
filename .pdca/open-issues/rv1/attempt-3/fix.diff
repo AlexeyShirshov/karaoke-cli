@@ -1,0 +1,189 @@
+diff --git a/build.rs b/build.rs
+index 2209685..ba2d4c2 100644
+--- a/build.rs
++++ b/build.rs
+@@ -1,54 +1,62 @@
+ use std::fs;
+ use std::path::Path;
+-use std::process::Command;
+ 
+-fn locked_package_version(lock: &str, package_name: &str) -> Option<String> {
+-    let mut in_package = false;
+-    let mut name_matches = false;
+-    for line in lock.lines() {
+-        if line.trim() == "[[package]]" {
+-            if in_package && name_matches {
+-                return None;
+-            }
+-            in_package = true;
+-            name_matches = false;
+-            continue;
+-        }
+-        if !in_package {
++fn quoted_field(package: &str, field: &str) -> Option<String> {
++    let prefix = format!("{field} = \"");
++    package.lines().find_map(|line| {
++        line.trim()
++            .strip_prefix(&prefix)
++            .and_then(|value| value.strip_suffix('\"'))
++            .map(str::to_owned)
++    })
++}
++
++fn locked_package(lock: &str, package_name: &str) -> Option<(String, Option<String>)> {
++    let mut found = None;
++    for package in lock.split("[[package]]").skip(1) {
++        if quoted_field(package, "name").as_deref() != Some(package_name) {
+             continue;
+         }
+-        let line = line.trim();
+-        if line == format!("name = \"{package_name}\"") {
+-            name_matches = true;
+-        } else if name_matches && line.starts_with("version = ") {
+-            return line
+-                .strip_prefix("version = \"")
+-                .and_then(|s| s.strip_suffix('\"'))
+-                .map(str::to_owned);
++        if found.is_some() {
++            return None;
+         }
++        let version = quoted_field(package, "version")?;
++        let source = quoted_field(package, "source");
++        found = Some((version, source));
++    }
++    found
++}
++
++fn source_kind(source: Option<&str>) -> &'static str {
++    match source {
++        Some("registry+https://github.com/rust-lang/crates.io-index") => "crates.io registry",
++        Some(source) if source.starts_with("registry+") => "registry",
++        Some(source) if source.starts_with("git+") => "git",
++        Some(_) => "other source",
++        None => "local path",
+     }
+-    None
+ }
+ 
+ fn main() {
+     println!("cargo:rerun-if-changed=Cargo.lock");
+     let lock_path = Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("Cargo.lock");
+-    let lock = fs::read_to_string(lock_path).unwrap_or_default();
+-    for (package, variable) in [
+-        ("candle-roformer", "CANDLE_ROFORMER_VERSION"),
+-        ("candle-core", "CANDLE_CORE_VERSION"),
++    let lock = fs::read_to_string(lock_path).expect("failed to read Cargo.lock");
++    for (package, version_variable, source_variable) in [
++        (
++            "candle-roformer",
++            "CANDLE_ROFORMER_VERSION",
++            Some("CANDLE_ROFORMER_SOURCE"),
++        ),
++        ("candle-core", "CANDLE_CORE_VERSION", None),
+     ] {
+-        let version = locked_package_version(&lock, package).unwrap_or_else(|| "unknown".into());
+-        println!("cargo:rustc-env={variable}={version}");
++        let (version, source) = locked_package(&lock, package)
++            .unwrap_or_else(|| panic!("Cargo.lock must contain one {package} package entry"));
++        println!("cargo:rustc-env={version_variable}={version}");
++        if let Some(source_variable) = source_variable {
++            println!(
++                "cargo:rustc-env={source_variable}={}",
++                source_kind(source.as_deref())
++            );
++        }
+     }
+-    let revision = Command::new("git")
+-        .args(["rev-parse", "--short=12", "HEAD"])
+-        .current_dir(std::env::var("CARGO_MANIFEST_DIR").unwrap())
+-        .output()
+-        .ok()
+-        .filter(|output| output.status.success())
+-        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+-        .filter(|value| !value.is_empty())
+-        .unwrap_or_else(|| "unknown".into());
+-    println!("cargo:rustc-env=CANDLE_ROFORMER_GIT_REVISION={revision}");
+ }
+diff --git a/src/main.rs b/src/main.rs
+index abbee74..a120ad9 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -16,8 +16,8 @@ use log::{LevelFilter, Log, Metadata, Record};
+ 
+ const VERSION: &str = env!("CARGO_PKG_VERSION");
+ const CANDLE_ROFORMER_VERSION: &str = env!("CANDLE_ROFORMER_VERSION");
++const CANDLE_ROFORMER_SOURCE: &str = env!("CANDLE_ROFORMER_SOURCE");
+ const CANDLE_CORE_VERSION: &str = env!("CANDLE_CORE_VERSION");
+-const CANDLE_ROFORMER_GIT_REVISION: &str = env!("CANDLE_ROFORMER_GIT_REVISION");
+ 
+ struct StderrLogger;
+ static LOGGER: StderrLogger = StderrLogger;
+@@ -407,8 +407,7 @@ fn env_info_report(
+     let mut lines = vec![
+         format!("CLI version: {VERSION}"),
+         format!("karaoke-cli package version: {VERSION}"),
+-        format!("candle-roformer version: {CANDLE_ROFORMER_VERSION}"),
+-        format!("candle-roformer revision: {CANDLE_ROFORMER_GIT_REVISION}"),
++        format!("candle-roformer version: {CANDLE_ROFORMER_VERSION} ({CANDLE_ROFORMER_SOURCE})"),
+         format!("candle-core version: {CANDLE_CORE_VERSION}"),
+         format!(
+             "compiled features: cuda={}, metal={}",
+@@ -660,6 +659,27 @@ fn main() {
+ mod cli_tests {
+     use super::*;
+ 
++    fn cargo_lock_field(package_name: &str, field: &str) -> String {
++        let prefix = format!("{field} = \"");
++        include_str!("../Cargo.lock")
++            .split("[[package]]")
++            .skip(1)
++            .find(|package| {
++                package
++                    .lines()
++                    .any(|line| line.trim() == format!("name = \"{package_name}\""))
++            })
++            .and_then(|package| {
++                package.lines().find_map(|line| {
++                    line.trim()
++                        .strip_prefix(&prefix)
++                        .and_then(|value| value.strip_suffix('\"'))
++                        .map(str::to_owned)
++                })
++            })
++            .unwrap_or_else(|| panic!("Cargo.lock has no {field} for {package_name}"))
++    }
++
+     #[test]
+     fn exact_ticket_flags_parse_and_custom_names_are_json() {
+         let argv = vec![
+@@ -761,11 +781,28 @@ mod cli_tests {
+     #[test]
+     fn env_info_reports_versions_features_and_resolved_paths_without_loading_assets() {
+         let report = env_info_report(Some("/tmp/model-root"), Some("separator.safetensors"), None);
++        let locked_roformer_version = cargo_lock_field("candle-roformer", "version");
++        let locked_roformer_source = cargo_lock_field("candle-roformer", "source");
++        let locked_core_version = cargo_lock_field("candle-core", "version");
++        let source_label =
++            if locked_roformer_source == "registry+https://github.com/rust-lang/crates.io-index" {
++                "crates.io registry"
++            } else if locked_roformer_source.starts_with("registry+") {
++                "registry"
++            } else if locked_roformer_source.starts_with("git+") {
++                "git"
++            } else {
++                "other source"
++            };
+         assert!(report.contains(&format!("CLI version: {VERSION}")));
+         assert!(report.contains(&format!(
+-            "candle-roformer version: {CANDLE_ROFORMER_VERSION}"
++            "candle-roformer version: {locked_roformer_version} ({source_label})"
+         )));
+-        assert!(report.contains(&format!("candle-core version: {CANDLE_CORE_VERSION}")));
++        assert_eq!(CANDLE_ROFORMER_VERSION, locked_roformer_version);
++        assert_eq!(CANDLE_ROFORMER_SOURCE, source_label);
++        assert!(report.contains(&format!("candle-core version: {locked_core_version}")));
++        assert_eq!(CANDLE_CORE_VERSION, locked_core_version);
++        assert!(!report.contains("candle-roformer revision:"));
+         assert!(report.contains(&format!(
+             "compiled features: cuda={}, metal={}",
+             cfg!(feature = "cuda"),

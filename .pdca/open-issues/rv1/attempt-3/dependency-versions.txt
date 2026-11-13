@@ -1,0 +1,71 @@
+Cargo.lock package entries from commit 624d456f711e3c235a40483338df9196777f88c3 (selected instead of cargo tree):
+
+[[package]] entry: candle-roformer
+[[package]]
+name = "candle-roformer"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "23a884b933f3d290197e6d37076ddfb2c1bbcd67ec9df9662261a0edfa4ee994"
+dependencies = [
+ "candle-core",
+ "candle-nn",
+ "candle-transformers",
+ "claxon",
+ "flate2",
+ "rustfft",
+ "samplerate",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "symphonia",
+ "thiserror 2.0.21",
+ "tokenizers",
+ "tract-onnx",
+]
+
+[[package]] entry: candle-core
+[[package]]
+name = "candle-core"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d11c8be87cfbaef9ebb62fb3f850d1fc8e00cc1d11d393fdbe55a4d5c2cdb325"
+dependencies = [
+ "byteorder",
+ "candle-kernels",
+ "candle-metal-kernels",
+ "cudarc",
+ "float8",
+ "gemm",
+ "half",
+ "libc",
+ "libm",
+ "memmap2",
+ "num-traits",
+ "num_cpus",
+ "objc2-foundation",
+ "objc2-metal",
+ "parking_lot 0.12.5",
+ "rand 0.9.5",
+ "rand_distr 0.5.1",
+ "rayon",
+ "safetensors",
+ "thiserror 2.0.21",
+ "tokenizers",
+ "yoke",
+ "zerocopy",
+ "zip",
+]
+
+Observed --env_info stdout from .pdca/open-issues/rv1/attempt-2/env-info.stdout (verbatim):
+
+CLI version: 0.1.0
+karaoke-cli package version: 0.1.0
+candle-roformer version: 1.0.0 (crates.io registry)
+candle-core version: 0.11.1
+compiled features: cuda=false, metal=false
+CPU device: available
+available parallelism: 8
+model search path: explicit local paths only; no implicit model downloads
+resolved model checkpoint: not specified (not required for --env_info)
+resolved model config: not specified (not required for --env_info)
