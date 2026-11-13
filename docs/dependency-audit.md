@@ -43,3 +43,15 @@ the semver requirements above.
 
 All codec verification uses generated synthetic audio; no user media or model
 weights are included in the dependency audit.
+
+## Level-processing dependency (ticket #7)
+
+No additional dependency was introduced for level processing. The CLI writes
+`normalization`, `amplification`, and `invert_spect` overrides into a temporary
+profile consumed by `candle-roformer 1.0`'s inference API. The defaults are
+`0.9`, `0.0` (off), and `false`. Exact residual mode disables normalization and
+amplification and leaves spectral inversion off; normalized mode independently
+peak-normalizes the non-silent input and output stems, so their sum is not
+guaranteed to reproduce the original-scale input. Synthetic tests verify the
+exact-residual maximum error bound (`1e-5`), the normalized per-stem peak
+invariant, quiet-input gain, and the spectral secondary-stem operation.

@@ -719,6 +719,30 @@ mod cli_tests {
     }
 
     #[test]
+    fn level_flags_match_reference_defaults_and_parse_explicit_values() {
+        let defaults = parse_args(&[]).unwrap();
+        assert_eq!(defaults.normalization, 0.9);
+        assert_eq!(defaults.amplification, 0.0);
+        assert!(!defaults.invert_spect);
+        let inference_defaults = InferenceOverrides::default();
+        assert_eq!(inference_defaults.normalization, 0.9);
+        assert_eq!(inference_defaults.amplification, 0.0);
+        assert!(!inference_defaults.invert_spect);
+
+        let explicit = parse_args(&[
+            "--normalization".into(),
+            "0".into(),
+            "--amplification".into(),
+            "0.25".into(),
+            "--invert_spect".into(),
+        ])
+        .unwrap();
+        assert_eq!(explicit.normalization, 0.0);
+        assert_eq!(explicit.amplification, 0.25);
+        assert!(explicit.invert_spect);
+    }
+
+    #[test]
     fn debug_is_an_info_backend_alias_and_invalid_levels_fail() {
         assert_eq!(parse_level("info").unwrap(), LevelFilter::Info);
         assert!(parse_level("verboseish").is_err());

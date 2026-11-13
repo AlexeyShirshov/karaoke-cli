@@ -562,8 +562,8 @@ fn four_stem_public_api_and_cli_keep_independent_named_outputs() {
                 - residual.vocals.planar[index]
                 - residual.instrumental.planar[index])
                 .abs()
-                < 1e-4,
-            "exact two-stem residual must reconstruct input at frame {index}"
+                <= 1e-5,
+            "exact two-stem residual must reconstruct input within f32 tolerance at frame {index}"
         );
     }
 
@@ -700,4 +700,147 @@ fn cli_encodes_flac_and_mp3_at_requested_sample_rate() {
             assert_eq!(decoded.planar.len(), expected_resampled.len());
         }
     }
+}
+
+#[test]
+fn level_processing_defaults_and_residual_modes_match_reference_semantics() {
+    fn peak(samples: &[f32]) -> f32 {
+        samples
+            .iter()
+            .map(|sample| sample.abs())
+            .fold(0.0, f32::max)
+    }
+
+    fn max_delta(left: &[f32], right: &[f32]) -> f32 {
+        assert_eq!(left.len(), right.len());
+        left.iter()
+            .zip(right)
+            .map(|(left, right)| (left - right).abs())
+            .fold(0.0, f32::max)
+    }
+
+    let dir = tmpdir("level_semantics");
+    let assets = tiny_separator_assets(&dir);
+    let input = AudioBuffer {
+        sample_rate: 44_100,
+        channels: 1,
+        planar: (0..2000)
+            .map(|index| (index as f32 * 0.043).sin() * 0.18)
+            .collect(),
+    };
+
+    // Exact-residual mode disables all level transformations and spectral
+    // inversion; summing the convenience stems restores the original samples.
+    let exact_separator = load_separator_with_options(
+        &assets,
+        DeviceChoice::Cpu,
+        InferenceOverrides {
+            normalization: 0.0,
+            amplification: 0.0,
+            invert_spect: false,
+        },
+    )
+    .unwrap();
+    let exact = karaoke_cli::separate_audio(&exact_separator, &input).unwrap();
+    let exact_sum: Vec<f32> = exact
+        .vocals
+        .planar
+        .iter()
+        .zip(&exact.instrumental.planar)
+        .map(|(vocals, instrumental)| vocals + instrumental)
+        .collect();
+    assert!(
+        max_delta(&exact_sum, &input.planar) <= 1e-5,
+        "exact residual mode must reconstruct the input within f32 tolerance"
+    );
+
+    // Normalized mode's invariant is per-buffer peak normalization, not an
+    // original-scale sum. Scaling the source input does not change the
+    // normalized inference result because the input is normalized to 0.9 too.
+    let defaults = InferenceOverrides::default();
+    assert_eq!(defaults.normalization, 0.9);
+    assert_eq!(defaults.amplification, 0.0);
+    assert!(!defaults.invert_spect);
+    let normalized_separator =
+        load_separator_with_options(&assets, DeviceChoice::Cpu, defaults).unwrap();
+    let normalized = karaoke_cli::separate_audio(&normalized_separator, &input).unwrap();
+    let half_scale_input = AudioBuffer {
+        planar: input.planar.iter().map(|sample| sample * 0.5).collect(),
+        ..input.clone()
+    };
+    let normalized_half =
+        karaoke_cli::separate_audio(&normalized_separator, &half_scale_input).unwrap();
+    assert_eq!(normalized.names(), normalized_half.names());
+    for ((name, stem), (half_name, half_stem)) in
+        normalized.stems.iter().zip(&normalized_half.stems)
+    {
+        assert_eq!(name, half_name);
+        let stem_peak = peak(&stem.planar);
+        assert!(stem_peak > 0.0, "synthetic stem {name} must be non-silent");
+        assert!(
+            (stem_peak - 0.9).abs() <= 1e-5,
+            "normalized stem {name} peak {stem_peak} is not 0.9"
+        );
+        assert!(
+            max_delta(&stem.planar, &half_stem.planar) <= 1e-5,
+            "input normalization should make the inferred {name} scale-invariant"
+        );
+    }
+
+    // With normalization off, amplification alone maps a quiet (< 0.1 peak)
+    // input to 0.1 before inference; the residual pair reconstructs that
+    // amplified reference, not the unamplified source.
+    let quiet = AudioBuffer {
+        planar: input.planar.iter().map(|sample| sample * 0.05).collect(),
+        ..input.clone()
+    };
+    let quiet_peak = peak(&quiet.planar);
+    assert!(quiet_peak > 0.0 && quiet_peak < 0.1);
+    let amplification_threshold = 0.1f32;
+    let gain = amplification_threshold / quiet_peak;
+    let amplified_input: Vec<f32> = quiet.planar.iter().map(|sample| sample * gain).collect();
+    let amplified_separator = load_separator_with_options(
+        &assets,
+        DeviceChoice::Cpu,
+        InferenceOverrides {
+            normalization: 0.0,
+            amplification: amplification_threshold,
+            invert_spect: false,
+        },
+    )
+    .unwrap();
+    let amplified = karaoke_cli::separate_audio(&amplified_separator, &quiet).unwrap();
+    let amplified_sum: Vec<f32> = amplified
+        .vocals
+        .planar
+        .iter()
+        .zip(&amplified.instrumental.planar)
+        .map(|(vocals, instrumental)| vocals + instrumental)
+        .collect();
+    assert!(
+        max_delta(&amplified_sum, &amplified_input) <= 1e-5,
+        "amplification should set the quiet-input reference peak to 0.1"
+    );
+    assert!((peak(&amplified_sum) - amplification_threshold).abs() <= 1e-5);
+
+    // Spectral inversion produces the secondary stem via the public upstream
+    // complex-STFT subtraction operation rather than waveform subtraction.
+    let inverted_separator = load_separator_with_options(
+        &assets,
+        DeviceChoice::Cpu,
+        InferenceOverrides {
+            normalization: 0.0,
+            amplification: 0.0,
+            invert_spect: true,
+        },
+    )
+    .unwrap();
+    let inverted = karaoke_cli::separate_audio(&inverted_separator, &input).unwrap();
+    let expected_spectral_residual =
+        candle_roformer::dsp::spectral_invert(&inverted.vocals.planar, &input.planar, 16, 4, 16)
+            .unwrap();
+    assert!(
+        max_delta(&inverted.instrumental.planar, &expected_spectral_residual) <= 1e-5,
+        "--invert_spect secondary stem must match complex-STFT subtraction"
+    );
 }
