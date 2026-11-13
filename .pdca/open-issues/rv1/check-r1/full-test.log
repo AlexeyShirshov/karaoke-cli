@@ -1,0 +1,51 @@
+Command: env CMAKE_POLICY_VERSION_MINIMUM=3.5 CARGO_BUILD_JOBS=1 /home/alex/.cargo/bin/cargo test --offline --locked
+Environment: CMAKE_POLICY_VERSION_MINIMUM=3.5 CARGO_BUILD_JOBS=1
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.31s
+     Running unittests src/lib.rs (target/debug/deps/karaoke_cli-b80f46f13a2894ad)
+
+running 7 tests
+test pipeline::output_tests::output_format_and_sample_rate_validation_is_explicit ... ok
+test pipeline::output_tests::custom_name_validation_rejects_unknown_and_traversal_without_paths ... ok
+test catalog::tests::builtin_catalog_is_local_filterable_and_stable_json ... ok
+test catalog::tests::fixture_catalog_filter_limit_pretty_columns_and_json_schema_are_stable ... ok
+test pipeline::output_tests::directory_discovery_is_non_recursive_filtered_and_sorted ... ok
+test pipeline::output_tests::output_sample_rate_uses_the_upstream_resampler ... ok
+test pipeline::output_tests::wav_flac_and_mp3_round_trip_through_project_decoder ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running unittests src/main.rs (target/debug/deps/karaoke_cli-10c1a597a40fee71)
+
+running 6 tests
+test cli_tests::debug_is_an_info_backend_alias_and_invalid_levels_fail ... ok
+test cli_tests::level_flags_match_reference_defaults_and_parse_explicit_values ... ok
+test cli_tests::env_info_reports_versions_features_and_resolved_paths_without_loading_assets ... ok
+test cli_tests::output_codec_and_resample_flags_parse_with_wav_default ... ok
+test cli_tests::malformed_custom_names_json_is_rejected_with_context ... ok
+test cli_tests::exact_ticket_flags_parse_and_custom_names_are_json ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/flow.rs (target/debug/deps/flow-f313a4b416ba204f)
+
+running 8 tests
+test timestamp_format_is_stable ... ok
+test trim_window_cuts_each_channel_independently ... ok
+test cli_encodes_flac_and_mp3_at_requested_sample_rate ... ok
+test batch_runs_valid_audio_after_corrupt_audio_and_aggregates_failures ... ok
+test four_stem_public_api_and_cli_keep_independent_named_outputs ... ok
+test separate_and_transcribe_writes_stems_and_sidecars ... ok
+test level_processing_defaults_and_residual_modes_match_reference_semantics ... ok
+test custom_names_cover_partial_outputs_sidecars_and_path_rejection ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.07s
+
+   Doc-tests karaoke_cli
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+Exit status: 0

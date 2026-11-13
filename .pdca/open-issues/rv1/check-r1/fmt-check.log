@@ -1,0 +1,5 @@
+Command: cargo fmt --all -- --check
+
+/bin/bash: line 5: cargo: command not found
+
+Exit status: 127

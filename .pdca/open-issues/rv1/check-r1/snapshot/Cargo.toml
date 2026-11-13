@@ -1,0 +1,41 @@
+[package]
+name = "karaoke-cli"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Offline CLI for vocal separation and lyric transcription built on candle-roformer"
+readme = "README.md"
+repository = "https://github.com/AlexeyShirshov/karaoke-cli"
+keywords = ["karaoke", "vocal-separation", "whisper", "transcription", "cli"]
+categories = ["multimedia::audio", "command-line-utilities"]
+
+[lib]
+name = "karaoke_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "karaoke-cli"
+path = "src/main.rs"
+
+[features]
+default = []
+cuda = ["candle-roformer/cuda"]
+metal = ["candle-roformer/metal"]
+
+[dependencies]
+# The crate is the product; this repository only adds the file-level front end.
+# Bump the version after every release that must reach the CLI.
+candle-roformer = "1.0"
+flacenc = { version = "0.5.1", default-features = false }
+log = "0.4"
+mp3lame-encoder = "0.3.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+[dev-dependencies]
+# Same Candle version as candle-roformer resolves, so the test-only types
+# (`VarBuilder`, the Whisper model) are the ones the crate is compiled against.
+candle-core = "0.11.1"
+candle-nn = "0.11.1"
+candle-transformers = "0.11.1"
