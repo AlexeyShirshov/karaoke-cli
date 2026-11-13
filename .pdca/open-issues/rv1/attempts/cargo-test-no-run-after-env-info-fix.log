@@ -1,0 +1,5 @@
+   Compiling karaoke-cli v0.1.0 (/home/alex/sources/karaoke-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 42.95s
+  Executable unittests src/lib.rs (target/debug/deps/karaoke_cli-b80f46f13a2894ad)
+  Executable unittests src/main.rs (target/debug/deps/karaoke_cli-10c1a597a40fee71)
+  Executable tests/flow.rs (target/debug/deps/flow-f313a4b416ba204f)

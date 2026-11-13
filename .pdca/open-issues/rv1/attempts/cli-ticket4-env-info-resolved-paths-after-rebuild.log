@@ -1,0 +1,13 @@
+CLI version: 0.1.0
+karaoke-cli package version: 0.1.0
+candle-roformer version: 1.0.0
+candle-roformer revision: a1ea0a4cea0d
+candle-core version: 0.11.1
+compiled features: cuda=false, metal=false
+CPU device: available
+available parallelism: 8
+model search path: /tmp/opencode/model-root
+resolved model checkpoint: /tmp/opencode/model-root/missing.safetensors
+resolved model config: /tmp/opencode/model-root/custom-profile.yaml
+env_info resolved-paths/no-weights exit: 0
+secret sentinel leaked: no

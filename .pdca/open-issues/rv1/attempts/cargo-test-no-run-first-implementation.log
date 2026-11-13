@@ -1,0 +1,111 @@
+ Downloading crates ...
+  Downloaded crc v3.4.0
+  Downloaded md-5 v0.10.6
+  Downloaded crc-catalog v2.5.0
+  Downloaded parking_lot v0.13.0
+  Downloaded parking_lot_core v0.10.0
+  Downloaded itoa v1.0.19
+  Downloaded hash32 v0.3.1
+  Downloaded errno v0.3.15
+  Downloaded built v0.7.7
+  Downloaded lock_api v0.5.0
+  Downloaded crc32fast v1.5.5
+  Downloaded heapless v0.8.0
+  Downloaded zip v9.5.1
+  Downloaded syn v3.0.10
+   Compiling syn v3.0.10
+   Compiling bytemuck_derive v1.12.1
+   Compiling bytemuck v1.25.2
+   Compiling num-complex v0.4.6
+   Compiling rustfft v6.4.1
+   Compiling serde_derive v1.0.229
+   Compiling serde v1.0.229
+   Compiling half v2.7.1
+   Compiling symphonia-core v0.6.1
+   Compiling itoa v1.0.19
+   Compiling symphonia-metadata v0.6.1
+   Compiling dyn-stack v0.13.2
+   Compiling pulp v0.22.3
+   Compiling serde_json v1.0.154
+   Compiling lock_api v0.5.0
+   Compiling parking_lot_core v0.10.0
+   Compiling parking_lot v0.13.0
+   Compiling ndarray v0.17.2
+   Compiling gemm-common v0.19.0
+   Compiling symphonia-common v0.6.1
+   Compiling string-interner v0.20.0
+   Compiling tract-data v0.23.10
+   Compiling tract-linalg v0.23.10
+   Compiling synstructure v0.14.0
+   Compiling crc32fast v1.5.5
+   Compiling tract-core v0.23.10
+   Compiling zerofrom-derive v0.1.8
+   Compiling gemm-f32 v0.19.0
+   Compiling thiserror-impl v2.0.21
+   Compiling spm_precompiled v0.1.4
+   Compiling compact_str v0.9.1
+   Compiling thiserror v2.0.21
+   Compiling gemm-f16 v0.19.0
+   Compiling zerofrom v0.1.8
+   Compiling ahash v0.8.12
+   Compiling tract-nnef v0.23.10
+   Compiling yoke-derive v0.8.4
+   Compiling gemm-c64 v0.19.0
+   Compiling gemm-f64 v0.19.0
+   Compiling gemm-c32 v0.19.0
+   Compiling dary_heap v0.3.9
+   Compiling tokenizers v0.23.2
+   Compiling itertools v0.15.0
+   Compiling zip v9.5.1
+   Compiling gemm v0.19.0
+   Compiling yoke v0.8.4
+   Compiling safetensors v0.8.0
+   Compiling float8 v0.7.0
+   Compiling candle-core v0.11.1
+   Compiling prost-derive v0.14.6
+   Compiling tract-extra v0.23.10
+   Compiling mp3lame-sys v0.2.0
+   Compiling heapless v0.8.0
+   Compiling built v0.7.7
+   Compiling tract-transformers v0.23.10
+   Compiling prost v0.14.6
+   Compiling symphonia-format-riff v0.6.1
+   Compiling flacenc v0.5.1
+   Compiling tract-onnx-opl v0.23.10
+   Compiling candle-nn v0.11.1
+   Compiling tract-hir v0.23.10
+   Compiling symphonia-bundle-flac v0.6.1
+   Compiling symphonia-format-mkv v0.6.1
+   Compiling symphonia-codec-alac v0.6.1
+   Compiling symphonia-format-ogg v0.6.1
+   Compiling symphonia-format-caf v0.6.1
+   Compiling symphonia-codec-aac v0.6.1
+   Compiling symphonia-codec-vorbis v0.6.1
+   Compiling symphonia-format-isomp4 v0.6.1
+   Compiling hash32 v0.3.1
+   Compiling symphonia-codec-adpcm v0.6.1
+   Compiling symphonia-bundle-mp3 v0.6.1
+   Compiling symphonia-codec-pcm v0.6.1
+   Compiling serde_plain v1.0.2
+   Compiling crc-catalog v2.5.0
+   Compiling crc v3.4.0
+   Compiling serde_yaml v0.9.34+deprecated
+   Compiling candle-transformers v0.11.1
+   Compiling symphonia v0.6.1
+   Compiling tract-onnx v0.23.10
+   Compiling flate2 v1.1.11
+   Compiling md-5 v0.10.6
+   Compiling karaoke-cli v0.1.0 (/home/alex/sources/karaoke-cli)
+   Compiling candle-roformer v1.0.0
+   Compiling mp3lame-encoder v0.3.0
+error[E0277]: `(flacenc::config::Encoder, VerifyError)` doesn't implement `std::fmt::Display`
+    --> src/pipeline.rs:1058:47
+     |
+1058 |                 "invalid FLAC encoder config: {error}"
+     |                                               ^^^^^^^ `(flacenc::config::Encoder, VerifyError)` cannot be formatted with the default formatter
+     |
+     = help: the trait `std::fmt::Display` is not implemented for `(flacenc::config::Encoder, VerifyError)`
+     = note: in format strings you may be able to use `{:?}` (or `{:#?}` for pretty-print) instead
+
+For more information about this error, try `rustc --explain E0277`.
+error: could not compile `karaoke-cli` (lib) due to 1 previous error

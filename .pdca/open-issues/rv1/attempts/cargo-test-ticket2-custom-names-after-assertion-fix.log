@@ -1,0 +1,10 @@
+   Compiling karaoke-cli v0.1.0 (/home/alex/sources/karaoke-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.96s
+     Running tests/flow.rs (target/debug/deps/flow-f313a4b416ba204f)
+
+running 1 test
+test custom_names_cover_partial_outputs_sidecars_and_path_rejection ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 8.77s
+
+targeted custom-name flow test exit: 0

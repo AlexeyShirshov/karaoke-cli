@@ -1,0 +1,7 @@
+flacenc = "0.5.1"                                   # Pure rust library for embedding FLAC encoder in your application.
+flacenc-bin = "0.2.7"                               # FLAC encoder written in pure Rust. An example application for flacenc crate.
+tauri-plugin-microphone-kessdev = "0.1.1-beta.0"    # Microphone plugin for Tauri v2: cross-platform audio recording, live metering a…
+flexaudio-encode = "0.8.1"                          # Streaming FLAC encoding sink for recorded audio (pure Rust, fully offline).
+oxiaudio-encode = "0.2.1"                           # Pure-Rust audio encoders (WAV via hound, FLAC via flacenc) for OxiAudio
+... and 18 crates more (use --limit N to see more)
+note: to learn more about a package, run `cargo info <name>`

@@ -1,0 +1,11 @@
+separating /tmp/kc_test_batch_continue/inputs/c-valid.wav
+vocals: /tmp/kc_test_batch_continue/cli-custom-transcribe/cli-transcript-name.wav
+instrumental: /tmp/kc_test_batch_continue/cli-custom-transcribe/c-valid_(Instrumental)_tiny_sep.wav
+transcript: /tmp/kc_test_batch_continue/cli-custom-transcribe/cli-transcript-name.txt
+json: /tmp/kc_test_batch_continue/cli-custom-transcribe/cli-transcript-name.json
+batch summary: 1 input(s), 1 succeeded, 0 failed
+custom-name transcript CLI exit: 0
+c-valid_(Instrumental)_tiny_sep.wav 8044 bytes
+cli-transcript-name.json 308 bytes
+cli-transcript-name.txt 32 bytes
+cli-transcript-name.wav 8044 bytes

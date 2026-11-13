@@ -1,0 +1,6 @@
+    Blocking waiting for file lock on package cache
+   Compiling karaoke-cli v0.1.0 (/home/alex/sources/karaoke-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 46.44s
+  Executable unittests src/lib.rs (target/debug/deps/karaoke_cli-25f84422274dbb3b)
+  Executable unittests src/main.rs (target/debug/deps/karaoke_cli-ce76734f0b238e41)
+  Executable tests/flow.rs (target/debug/deps/flow-f064f75dbf4808e0)

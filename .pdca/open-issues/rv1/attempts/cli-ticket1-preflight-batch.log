@@ -1,0 +1,13 @@
+separating /tmp/kc_test_batch_continue/inputs/a-valid.wav
+separating /tmp/kc_test_batch_continue/inputs/b-damaged.wav
+1794603065.225 ERROR symphonia_core::formats::probe: probe reached EOF at 17 bytes
+separating /tmp/kc_test_batch_continue/inputs/c-valid.wav
+error: /tmp/kc_test_batch_continue/inputs/a-valid.wav: audio error: output file exists (/tmp/kc_test_batch_continue/out/a-valid_(Vocals)_tiny_sep.wav); use --overwrite
+error: /tmp/kc_test_batch_continue/inputs/b-damaged.wav: unsupported audio format: unsupported feature: core (probe): no suitable format reader found
+error: /tmp/kc_test_batch_continue/inputs/c-valid.wav: audio error: output file exists (/tmp/kc_test_batch_continue/out/c-valid_(Vocals)_tiny_sep.wav); use --overwrite
+batch summary: 3 input(s), 0 succeeded, 3 failed
+failed inputs:
+  - /tmp/kc_test_batch_continue/inputs/a-valid.wav: audio error: output file exists (/tmp/kc_test_batch_continue/out/a-valid_(Vocals)_tiny_sep.wav); use --overwrite
+  - /tmp/kc_test_batch_continue/inputs/b-damaged.wav: unsupported audio format: unsupported feature: core (probe): no suitable format reader found
+  - /tmp/kc_test_batch_continue/inputs/c-valid.wav: audio error: output file exists (/tmp/kc_test_batch_continue/out/c-valid_(Vocals)_tiny_sep.wav); use --overwrite
+expected-negative preflight batch CLI exit: 1

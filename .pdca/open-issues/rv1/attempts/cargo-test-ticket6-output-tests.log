@@ -1,0 +1,14 @@
+   Compiling karaoke-cli v0.1.0 (/home/alex/sources/karaoke-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.40s
+     Running unittests src/lib.rs (target/debug/deps/karaoke_cli-b80f46f13a2894ad)
+
+running 5 tests
+test pipeline::output_tests::output_format_and_sample_rate_validation_is_explicit ... ok
+test pipeline::output_tests::custom_name_validation_rejects_unknown_and_traversal_without_paths ... ok
+test pipeline::output_tests::directory_discovery_is_non_recursive_filtered_and_sorted ... ok
+test pipeline::output_tests::output_sample_rate_uses_the_upstream_resampler ... ok
+test pipeline::output_tests::wav_flac_and_mp3_round_trip_through_project_decoder ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.05s
+
+offline codec/output unit tests exit: 0

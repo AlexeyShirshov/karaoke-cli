@@ -1,0 +1,17 @@
+separating /tmp/kc_test_batch_continue/inputs/c-valid.wav
+1794604735.808 DEBUG symphonia_core::formats::probe: selected format reader 'wave' with score 255
+1794604735.809 DEBUG karaoke_cli::pipeline: stage=decode input=/tmp/kc_test_batch_continue/inputs/c-valid.wav elapsed_ms=0
+1794604736.742 DEBUG karaoke_cli::pipeline: stage=separate input=/tmp/kc_test_batch_continue/inputs/c-valid.wav stem_count=2 elapsed_ms=933
+1794604739.644 DEBUG karaoke_cli::pipeline: stage=transcribe input=/tmp/kc_test_batch_continue/inputs/c-valid.wav elapsed_ms=2901
+1794604739.654 DEBUG karaoke_cli::pipeline: stage=write input=/tmp/kc_test_batch_continue/inputs/c-valid.wav outputs=4 elapsed_ms=10
+vocals: /tmp/opencode/karaoke-cli-ticket4/debug/c-valid_(Vocals)_tiny_sep.wav
+instrumental: /tmp/opencode/karaoke-cli-ticket4/debug/c-valid_(Instrumental)_tiny_sep.wav
+transcript: /tmp/opencode/karaoke-cli-ticket4/debug/c-valid_(Vocals)_tiny_sep.txt
+json: /tmp/opencode/karaoke-cli-ticket4/debug/c-valid_(Vocals)_tiny_sep.json
+batch summary: 1 input(s), 1 succeeded, 0 failed
+debug CLI exit: 0
+stage decode observed: yes
+stage separate observed: yes
+stage transcribe observed: yes
+stage write observed: yes
+timestamp+module target format: yes

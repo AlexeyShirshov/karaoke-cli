@@ -1,0 +1,6 @@
+separating /tmp/kc_test_batch_continue/inputs/c-valid.wav
+error: /tmp/kc_test_batch_continue/inputs/c-valid.wav: whisper assets: cannot read config /tmp/kc_test_custom_names_whisper/model.safetensors: stream did not contain valid UTF-8
+batch summary: 1 input(s), 0 succeeded, 1 failed
+failed inputs:
+  - /tmp/kc_test_batch_continue/inputs/c-valid.wav: whisper assets: cannot read config /tmp/kc_test_custom_names_whisper/model.safetensors: stream did not contain valid UTF-8
+custom-name transcript CLI exit: 1

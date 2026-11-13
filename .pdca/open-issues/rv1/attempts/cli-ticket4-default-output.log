@@ -1,0 +1,6 @@
+separating /tmp/kc_test_batch_continue/inputs/c-valid.wav
+vocals: /tmp/opencode/karaoke-cli-ticket4/default/c-valid_(Vocals)_tiny_sep.wav
+instrumental: /tmp/opencode/karaoke-cli-ticket4/default/c-valid_(Instrumental)_tiny_sep.wav
+batch summary: 1 input(s), 1 succeeded, 0 failed
+default CLI exit: 0
+default stage timing lines: 0

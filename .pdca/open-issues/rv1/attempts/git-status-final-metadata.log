@@ -1,0 +1,4 @@
+git status --porcelain exit=0 stdout_bytes=0 (empty)
+git status exit=0
+branch=main
+ahead_of_origin_main=10

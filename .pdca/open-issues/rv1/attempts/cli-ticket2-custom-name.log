@@ -1,0 +1,7 @@
+separating /tmp/kc_test_batch_continue/inputs/c-valid.wav
+vocals: /tmp/kc_test_batch_continue/cli-custom/cli-lead.wav
+instrumental: /tmp/kc_test_batch_continue/cli-custom/c-valid_(Instrumental)_tiny_sep.wav
+batch summary: 1 input(s), 1 succeeded, 0 failed
+custom-name CLI exit: 0
+c-valid_(Instrumental)_tiny_sep.wav 8044 bytes
+cli-lead.wav 8044 bytes

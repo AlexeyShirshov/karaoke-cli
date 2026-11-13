@@ -1,0 +1,10 @@
+separating /tmp/kc_test_batch_continue/inputs/a-valid.wav
+separating /tmp/kc_test_batch_continue/inputs/b-damaged.wav
+1794602941.457 ERROR symphonia_core::formats::probe: probe reached EOF at 17 bytes
+vocals: /tmp/kc_test_batch_continue/cliout/a-valid_(Vocals)_tiny_sep.wav
+instrumental: /tmp/kc_test_batch_continue/cliout/a-valid_(Instrumental)_tiny_sep.wav
+error: /tmp/kc_test_batch_continue/inputs/b-damaged.wav: unsupported audio format: unsupported feature: core (probe): no suitable format reader found
+batch summary: 2 input(s), 1 succeeded, 1 failed
+failed inputs:
+  - /tmp/kc_test_batch_continue/inputs/b-damaged.wav: unsupported audio format: unsupported feature: core (probe): no suitable format reader found
+expected-negative mixed-batch CLI exit: 1

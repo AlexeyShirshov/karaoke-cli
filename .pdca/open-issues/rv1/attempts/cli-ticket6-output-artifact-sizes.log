@@ -1,0 +1,6 @@
+ls: cannot access '/tmp/kc_test_cli_codecs/out-mp3': No such file or directory
+/tmp/kc_test_cli_codecs/out-flac:
+total 8
+-rw-r--r-- 1 alex alex 3593 Nov 14 02:39 codec-input_(Instrumental)_tiny_sep.flac
+-rw-r--r-- 1 alex alex 2541 Nov 14 02:39 codec-input_(Vocals)_tiny_sep.flac
+artifact listing exit: 2

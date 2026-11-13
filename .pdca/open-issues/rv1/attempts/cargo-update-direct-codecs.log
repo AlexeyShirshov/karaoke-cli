@@ -1,0 +1,23 @@
+    Updating crates.io index
+     Locking 20 packages to highest compatible versions
+      Adding built v0.7.7
+    Updating bumpalo v3.20.3 -> v3.20.4
+      Adding crc v3.4.0
+      Adding crc-catalog v2.5.0
+    Updating crc32fast v1.5.4 -> v1.5.5
+    Updating errno v0.3.14 -> v0.3.15
+      Adding flacenc v0.5.1
+      Adding hash32 v0.3.1
+      Adding heapless v0.8.0
+    Updating itoa v1.0.18 -> v1.0.19
+    Updating libloading v0.9.0 -> v0.9.1
+      Adding lock_api v0.5.0
+      Adding md-5 v0.10.6
+      Adding mp3lame-encoder v0.3.0
+      Adding mp3lame-sys v0.2.0
+      Adding parking_lot v0.13.0
+      Adding parking_lot_core v0.10.0
+      Adding redox_syscall v0.9.5
+    Updating syn v3.0.9 -> v3.0.10
+    Updating zip v9.4.2 -> v9.5.1
+note: pass `--verbose` to see 1 unchanged dependencies behind latest

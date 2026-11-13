@@ -1,0 +1,5 @@
+NAME | FILENAME | ARCHITECTURE | STEMS | SDR | CHECKSUM | WEIGHTS
+BS-RoFormer Viperx 1297 (vocals) | model_bs_roformer_ep_317_sdr_12.9755.safetensors | BSRoformer | vocals,instrumental | 12.9755 | 5b84f37e8d444c8cb30c79d77f613a41c05868ff9c9ac6c7049c00aefae115aa | Download the published .ckpt named in configs/bs_roformer_viperx_1297.yaml, then convert it to safetensors with candle-roformer's tools/convert_bs_roformer.py. The checksum is for the source checkpoint.
+GaboxR67 voc_fv7 (vocals) | voc_fv7.safetensors | MelBandRoformer | vocals,instrumental | - | - | Obtain voc_fv7.ckpt from the source identified in candle-roformer's configs/voc_fv7.yaml and convert it with tools/convert_voc_fv7.py.
+KimberleyJSN MelBandRoformer 384 (vocals) | MelBandRoformer_fp32.safetensors | MelBandRoformer | vocals,instrumental | - | - | Obtain the f32 safetensors checkpoint published by the Kijai mirror; its model profile is candle-roformer's configs/kijai_melband_384.yaml.
+offline built-in pretty CLI exit: 0

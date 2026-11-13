@@ -1,0 +1,14 @@
+    Blocking waiting for file lock on package cache
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded mp3lame-encoder v0.3.0
+mp3lame-encoder #lame #mp3 #mp3lame #libmp3lame #codec
+High level bindings to mp3lame encoder
+version: 0.3.0
+license: LGPL-3.0
+rust-version: 1.85
+documentation: https://docs.rs/mp3lame-encoder/0.3.0
+repository: https://github.com/DoumanAsh/mp3lame-encoder
+crates.io: https://crates.io/crates/mp3lame-encoder/0.3.0
+features:
+  std = []

@@ -1,0 +1,13 @@
+   Compiling karaoke-cli v0.1.0 (/home/alex/sources/karaoke-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.37s
+     Running unittests src/main.rs (target/debug/deps/karaoke_cli-10c1a597a40fee71)
+
+running 4 tests
+test cli_tests::debug_is_an_info_backend_alias_and_invalid_levels_fail ... ok
+test cli_tests::env_info_reports_versions_features_and_resolved_paths_without_loading_assets ... ok
+test cli_tests::exact_ticket_flags_parse_and_custom_names_are_json ... ok
+test cli_tests::malformed_custom_names_json_is_rejected_with_context ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+offline CLI unit tests exit: 0

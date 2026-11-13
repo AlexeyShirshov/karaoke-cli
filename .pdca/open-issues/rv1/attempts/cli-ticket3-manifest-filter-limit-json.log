@@ -1,0 +1,15 @@
+[
+  {
+    "name": "Fixture RoseRoformer vocals",
+    "filename": "fixture-rose.safetensors",
+    "architecture": "MelBandRoformer",
+    "stems": [
+      "vocals",
+      "drums"
+    ],
+    "SDR": 7.25,
+    "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "weights": "Synthetic fixture; no checkpoint is provided or downloaded."
+  }
+]
+offline catalogue JSON CLI exit: 0

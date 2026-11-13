@@ -1,0 +1,45 @@
+   Compiling libsamplerate-sys v0.1.12
+   Compiling prost-derive v0.14.6
+   Compiling tract-extra v0.23.10
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling num-bigint v0.4.8
+   Compiling float-ord v0.3.2
+   Compiling bytes v1.12.1
+   Compiling prost v0.14.6
+   Compiling symphonia-format-riff v0.6.1
+   Compiling tract-transformers v0.23.10
+   Compiling miniz_oxide v0.9.1
+   Compiling num-rational v0.4.2
+   Compiling digest v0.10.7
+   Compiling tract-onnx-opl v0.23.10
+   Compiling candle-nn v0.11.1
+   Compiling tract-hir v0.23.10
+   Compiling symphonia-format-ogg v0.6.1
+   Compiling symphonia-format-caf v0.6.1
+   Compiling symphonia-codec-aac v0.6.1
+   Compiling symphonia-codec-vorbis v0.6.1
+   Compiling symphonia-format-isomp4 v0.6.1
+   Compiling symphonia-bundle-flac v0.6.1
+   Compiling symphonia-format-mkv v0.6.1
+   Compiling symphonia-codec-alac v0.6.1
+   Compiling symphonia-codec-adpcm v0.6.1
+   Compiling symphonia-bundle-mp3 v0.6.1
+   Compiling symphonia-codec-pcm v0.6.1
+   Compiling cpufeatures v0.2.17
+   Compiling sha2 v0.10.9
+   Compiling candle-transformers v0.11.1
+   Compiling symphonia v0.6.1
+   Compiling tract-onnx v0.23.10
+   Compiling samplerate v0.2.4
+   Compiling flate2 v1.1.11
+   Compiling candle-roformer v1.0.0
+   Compiling karaoke-cli v0.1.0 (/home/alex/sources/karaoke-cli)
+error[E0063]: missing fields `family` and `freqs_per_bands` in initializer of `SeparatorConfig`
+   --> tests/flow.rs:130:15
+    |
+130 |     let cfg = SeparatorConfig {
+    |               ^^^^^^^^^^^^^^^ missing `family` and `freqs_per_bands`
+
+For more information about this error, try `rustc --explain E0063`.
+error: could not compile `karaoke-cli` (test "flow") due to 1 previous error

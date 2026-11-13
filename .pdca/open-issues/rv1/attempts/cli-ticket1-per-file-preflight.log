@@ -1,0 +1,21 @@
+separating /tmp/kc_test_batch_continue/inputs/a-valid.wav
+separating /tmp/kc_test_batch_continue/inputs/b-damaged.wav
+1794603103.736 ERROR symphonia_core::formats::probe: probe reached EOF at 17 bytes
+separating /tmp/kc_test_batch_continue/inputs/c-valid.wav
+error: /tmp/kc_test_batch_continue/inputs/a-valid.wav: audio error: output file exists (/tmp/kc_test_batch_continue/cliout/a-valid_(Vocals)_tiny_sep.wav); use --overwrite
+error: /tmp/kc_test_batch_continue/inputs/b-damaged.wav: unsupported audio format: unsupported feature: core (probe): no suitable format reader found
+vocals: /tmp/kc_test_batch_continue/cliout/c-valid_(Vocals)_tiny_sep.wav
+instrumental: /tmp/kc_test_batch_continue/cliout/c-valid_(Instrumental)_tiny_sep.wav
+batch summary: 3 input(s), 1 succeeded, 2 failed
+failed inputs:
+  - /tmp/kc_test_batch_continue/inputs/a-valid.wav: audio error: output file exists (/tmp/kc_test_batch_continue/cliout/a-valid_(Vocals)_tiny_sep.wav); use --overwrite
+  - /tmp/kc_test_batch_continue/inputs/b-damaged.wav: unsupported audio format: unsupported feature: core (probe): no suitable format reader found
+expected-negative per-file preflight CLI exit: 1
+
+Observed output manifest (3 files; rejected a-valid instrumental absent):
+a-valid_(Vocals)_tiny_sep.wav 18 bytes
+c-valid_(Instrumental)_tiny_sep.wav 8044 bytes
+c-valid_(Vocals)_tiny_sep.wav 8044 bytes
+031818a443e242a52d04a5ba06a0de986375b48576d70e1667152e2ce2da556d  /tmp/kc_test_batch_continue/cliout/a-valid_(Vocals)_tiny_sep.wav
+21d160aae9b39e9df42d5b54d654120637544f06c479f97b4a78398f970da3fe  /tmp/kc_test_batch_continue/cliout/c-valid_(Vocals)_tiny_sep.wav
+14ffda82a8d33b434f108b8c996f74d8d5d2207a18c19c1647b909d20ef3022b  /tmp/kc_test_batch_continue/cliout/c-valid_(Instrumental)_tiny_sep.wav

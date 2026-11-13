@@ -1,0 +1,21 @@
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded flacenc v0.5.1
+flacenc #flac #lossless #encoder #audio
+Pure rust library for embedding FLAC encoder in your application.
+version: 0.5.1
+license: Apache-2.0
+rust-version: unknown
+documentation: https://docs.rs/flacenc/latest/flacenc
+repository: https://github.com/yotarok/flacenc-rs/
+crates.io: https://crates.io/crates/flacenc/0.5.1
+features:
+ +default        = [log, par, serde]
+  log            = [dep:log]
+  par            = [dep:crossbeam-channel]
+  serde          = [dep:serde, heapless/serde]
+  __export_sigen = [dep:rand]
+  decode         = [dep:nom]
+  experimental   = [dep:nalgebra]
+  mimalloc       = [dep:mimalloc]
+  simd-nightly   = []

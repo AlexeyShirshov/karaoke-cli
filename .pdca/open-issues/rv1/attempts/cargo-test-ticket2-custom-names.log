@@ -1,0 +1,20 @@
+   Compiling karaoke-cli v0.1.0 (/home/alex/sources/karaoke-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.49s
+     Running tests/flow.rs (target/debug/deps/flow-f313a4b416ba204f)
+
+running 1 test
+
+thread 'custom_names_cover_partial_outputs_sidecars_and_path_rejection' (2442062) panicked at tests/flow.rs:487:9:
+absolute path: unsupported audio format: invalid output name for stem 'vocals': absolute paths, directory separators, and '..' traversal are not allowed
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test custom_names_cover_partial_outputs_sidecars_and_path_rejection ... FAILED
+
+failures:
+
+failures:
+    custom_names_cover_partial_outputs_sidecars_and_path_rejection
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 6.62s
+
+error: test failed, to rerun pass `--test flow`
+targeted custom-name flow test exit: 101
