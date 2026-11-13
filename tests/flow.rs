@@ -636,3 +636,68 @@ fn four_stem_public_api_and_cli_keep_independent_named_outputs() {
         .collect();
     assert_eq!(single_names, vec!["song_(Bass)_tiny_sep.wav"]);
 }
+
+#[test]
+fn cli_encodes_flac_and_mp3_at_requested_sample_rate() {
+    let dir = tmpdir("cli_codecs");
+    let assets = tiny_separator_assets(&dir);
+    let input_audio = AudioBuffer {
+        sample_rate: 44_100,
+        channels: 1,
+        planar: (0..2000)
+            .map(|index| (index as f32 * 0.041).sin() * 0.2)
+            .collect(),
+    };
+    let input = dir.join("codec-input.wav");
+    write_wav_f32(&input, &input_audio).unwrap();
+    let expected_resampled = candle_roformer::resample::resample_planar(
+        &input_audio.planar,
+        input_audio.channels as usize,
+        input_audio.sample_rate,
+        48_000,
+    );
+
+    for (format, bitrate) in [("flac", None), ("mp3", Some("128"))] {
+        let output_dir = dir.join(format!("out-{format}"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_karaoke-cli"));
+        command
+            .arg(&input)
+            .arg("--model_filename")
+            .arg(&assets.checkpoint)
+            .arg("--config")
+            .arg(&assets.config)
+            .arg("--output_dir")
+            .arg(&output_dir)
+            .arg("--output_format")
+            .arg(format)
+            .arg("--sample_rate")
+            .arg("48000")
+            .arg("--normalization")
+            .arg("0")
+            .arg("--amplification")
+            .arg("0");
+        if let Some(bitrate) = bitrate {
+            command.arg("--output_bitrate").arg(bitrate);
+        }
+        let result = command.output().unwrap();
+        assert!(
+            result.status.success(),
+            "{format} CLI failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let output_path = output_dir.join(format!("codec-input_(Vocals)_tiny_sep.{format}"));
+        assert!(output_path.is_file(), "missing {} output", format);
+        let decoded = read_audio(&output_path).unwrap();
+        assert_eq!(decoded.sample_rate, 48_000, "{format}");
+        let duration_delta =
+            (decoded.duration_secs() - expected_resampled.len() as f64 / 48_000.0).abs();
+        assert!(
+            duration_delta <= 0.05,
+            "{format}: duration delta {duration_delta}"
+        );
+        if format == "flac" {
+            assert_eq!(decoded.planar.len(), expected_resampled.len());
+        }
+    }
+}

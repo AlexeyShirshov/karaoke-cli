@@ -41,8 +41,10 @@ Options:
 | `--config` | Model profile YAML (default: `<model-stem>.yaml` next to the model) |
 | `--model_file_dir` | Directory used to resolve the two paths above |
 | `--output_dir`, `--output` | Output directory (default: `.`) |
-| `--output_format wav` | Only `wav` is implemented |
-| `--single_stem` | Write only the vocals stem |
+| `--output_format wav, flac, or mp3` | Output container (default: WAV, IEEE-f32, no integer conversion or dithering); FLAC is lossless 24-bit PCM and MP3 is lossy |
+| `--output_bitrate <kbps>` | MP3 CBR bitrate (default: 192 kbps); only valid with `--output_format mp3` |
+| `--sample_rate <Hz>` | Resample output using `candle-roformer`'s resampler; omitted means preserve the input rate |
+| `--single_stem <name>` | Write only the selected named stem, e.g. `vocals`, `bass`, or `drums` |
 | `--device cpu\|cuda\|metal` | An unavailable device is an error, never a silent CPU fallback |
 | `--start`, `--duration` | Process a window of the input, in seconds |
 | `--overwrite` | Replace existing outputs |
@@ -75,7 +77,12 @@ are never resident at once.
 
 ## Input formats
 
-m4a (AAC, ALAC, FLAC-in-MP4), mp3, flac, ogg/vorbis, wav, decoded by the crate.
+m4a (AAC, ALAC, FLAC-in-MP4), mp3, flac, ogg/vorbis, wav, decoded by the crate. As
+an **output** format, only WAV, FLAC and MP3 are supported. Output `m4a`/`aac`
+is rejected with `no bundled offline AAC/M4A encoder is available`; the CLI does
+not shell out to FFmpeg or rely on a system encoder. See
+[`docs/dependency-audit.md`](docs/dependency-audit.md) for codec/build and
+dependency details.
 Mono input is duplicated to stereo for the model and the separated vocal is
 downmixed back to mono; stereo stays stereo.
 

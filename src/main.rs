@@ -692,6 +692,33 @@ mod cli_tests {
     }
 
     #[test]
+    fn output_codec_and_resample_flags_parse_with_wav_default() {
+        let defaults = parse_args(&[]).unwrap();
+        assert_eq!(defaults.format, OutputFormat::Wav);
+        assert_eq!(defaults.bitrate, None);
+        assert_eq!(defaults.sample_rate, None);
+
+        let parsed = parse_args(&[
+            "--output_format".into(),
+            "mp3".into(),
+            "--output_bitrate".into(),
+            "256".into(),
+            "--sample_rate".into(),
+            "48000".into(),
+        ])
+        .unwrap();
+        assert_eq!(parsed.format, OutputFormat::Mp3);
+        assert_eq!(parsed.bitrate, Some(256));
+        assert_eq!(parsed.sample_rate, Some(48_000));
+        assert!(karaoke_cli::pipeline::validate_output_options(
+            parsed.format,
+            parsed.bitrate,
+            parsed.sample_rate
+        )
+        .is_ok());
+    }
+
+    #[test]
     fn debug_is_an_info_backend_alias_and_invalid_levels_fail() {
         assert_eq!(parse_level("info").unwrap(), LevelFilter::Info);
         assert!(parse_level("verboseish").is_err());

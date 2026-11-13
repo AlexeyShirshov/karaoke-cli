@@ -1099,8 +1099,15 @@ fn write_flac(path: &Path, audio: &AudioBuffer) -> Result<(), Error> {
         bits_per_sample,
         audio.sample_rate as usize,
     );
-    let stream = flacenc::encode_with_fixed_block_size(&config, source, config.block_size)
-        .map_err(|error| {
+    // Avoid a single short final frame whose declared STREAMINFO block size is
+    // the default 4096 even though the stream contains fewer samples. Using the
+    // actual frame count (bounded by FLAC's block-size limits) keeps short
+    // resampled outputs decodable by the project's own reader.
+    let block_size = frames
+        .min(config.block_size)
+        .max(flacenc::constant::MIN_BLOCK_SIZE);
+    let stream =
+        flacenc::encode_with_fixed_block_size(&config, source, block_size).map_err(|error| {
             Error::Audio(AudioError::UnsupportedFormat(format!(
                 "FLAC encoding failed: {error}"
             )))
@@ -1276,10 +1283,14 @@ mod output_tests {
     }
 
     #[test]
-    fn flac_and_mp3_round_trip_through_project_decoder() {
+    fn wav_flac_and_mp3_round_trip_through_project_decoder() {
         let dir = temp_dir("codecs");
         let source = synthetic_audio(44_100, 8_192, 1);
-        for (format, bitrate) in [(OutputFormat::Flac, None), (OutputFormat::Mp3, Some(192))] {
+        for (format, bitrate) in [
+            (OutputFormat::Wav, None),
+            (OutputFormat::Flac, None),
+            (OutputFormat::Mp3, Some(192)),
+        ] {
             let path = dir.join(format!("roundtrip.{}", format.extension()));
             write_audio(&path, &source, format, bitrate).unwrap();
             let decoded = read_audio(&path).unwrap();
@@ -1291,21 +1302,47 @@ mod output_tests {
                 0.0
             };
             assert!(delta <= tolerance, "{format:?}: duration delta {delta}");
-            if format == OutputFormat::Flac {
+            if matches!(format, OutputFormat::Wav | OutputFormat::Flac) {
                 assert_eq!(decoded.planar.len(), source.planar.len());
+            }
+            if format == OutputFormat::Wav {
+                assert_eq!(
+                    decoded.planar, source.planar,
+                    "WAV must preserve IEEE-f32 samples without integer conversion or dithering"
+                );
             }
         }
         fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
+    fn output_sample_rate_uses_the_upstream_resampler() {
+        let source = synthetic_audio(44_100, 4_410, 2);
+        let output = resample_for_output(&source, Some(48_000)).unwrap();
+        assert_eq!(output.sample_rate, 48_000);
+        assert_eq!(output.channels, source.channels);
+        let duration_delta = (output.duration_secs() - source.duration_secs()).abs();
+        assert!(
+            duration_delta <= 1.0 / 48_000.0,
+            "duration delta {duration_delta}"
+        );
+    }
+
+    #[test]
     fn output_format_and_sample_rate_validation_is_explicit() {
-        assert!(OutputFormat::parse("m4a")
-            .unwrap_err()
-            .contains("offline AAC/M4A"));
+        for unsupported in ["m4a", "aac"] {
+            let message = OutputFormat::parse(unsupported).unwrap_err();
+            assert!(message.contains("unsupported"), "{unsupported}: {message}");
+            assert!(
+                message.contains("offline AAC/M4A"),
+                "{unsupported}: {message}"
+            );
+        }
         assert!(validate_output_options(OutputFormat::Mp3, Some(192), Some(44_100)).is_ok());
+        assert!(validate_output_options(OutputFormat::Mp3, Some(192), Some(48_000)).is_ok());
         assert!(validate_output_options(OutputFormat::Mp3, Some(123), None).is_err());
         assert!(validate_output_options(OutputFormat::Wav, Some(192), None).is_err());
         assert!(validate_output_options(OutputFormat::Flac, None, Some(0)).is_err());
+        assert!(validate_output_options(OutputFormat::Wav, None, Some(384_001)).is_err());
     }
 }
