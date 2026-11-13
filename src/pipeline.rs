@@ -18,6 +18,15 @@ use candle_roformer::separator::{Separator, Stems};
 use candle_roformer::wav::{read_audio, write_wav_f32, AudioBuffer};
 use candle_roformer::whisper::{TranscribeOptions, Transcriber, Transcript, TranscriptSegment};
 
+/// Separate an in-memory buffer and return the complete named set supplied by
+/// `candle-roformer` 1.0. `Stems::vocals` and `Stems::instrumental` remain
+/// available as two-stem convenience fields; multi-stem models expose their
+/// independent estimates through `Stems::stems` / `get` without synthesizing a
+/// residual.
+pub fn separate_audio(separator: &Separator, audio: &AudioBuffer) -> Result<Stems, Error> {
+    separator.separate(audio)
+}
+
 /// Output file names (relative to the output directory).
 pub struct OutputNames<'a> {
     pub vocals: &'a str,

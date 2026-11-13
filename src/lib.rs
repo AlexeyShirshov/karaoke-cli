@@ -12,3 +12,4 @@ pub mod pipeline;
 /// every model-produced stem; the `vocals` and `instrumental` fields remain
 /// available for the two-stem residual case.
 pub use candle_roformer::Stems as NamedStems;
+pub use pipeline::separate_audio;

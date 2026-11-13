@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use candle_core::{DType, Device};
 use candle_nn::{VarBuilder, VarMap};
@@ -130,11 +131,15 @@ fn synth_whisper_assets(name: &str) -> LocalWhisperAssets {
 }
 
 fn tiny_separator_assets(dir: &Path) -> LocalSeparationAssets {
+    tiny_separator_assets_with_stems(dir, 1)
+}
+
+fn tiny_separator_assets_with_stems(dir: &Path, num_stems: usize) -> LocalSeparationAssets {
     let cfg = SeparatorConfig {
         dim: 8,
         depth: 1,
         stereo: true,
-        num_stems: 1,
+        num_stems,
         num_bands: 4,
         family: None,
         freqs_per_bands: None,
@@ -166,8 +171,8 @@ fn tiny_separator_assets(dir: &Path) -> LocalSeparationAssets {
     varmap.save(&model).unwrap();
 
     let yaml = format!(
-        "model:\n  dim: {}\n  depth: {}\n  stereo: true\n  num_stems: 1\n  time_transformer_depth: 1\n  freq_transformer_depth: 1\n  num_bands: {}\n  dim_head: {}\n  heads: {}\n  flash_attn: false\n  dim_freqs_in: {}\n  sample_rate: 44100\n  stft_n_fft: {}\n  stft_hop_length: {}\n  stft_win_length: {}\n  stft_normalized: false\n  mask_estimator_depth: 2\n  use_torch_checkpoint: false\n  mlp_expansion_factor: 4\n  linear_transformer_depth: 0\n  norm_output: true\n  skip_connection: false\n  zero_dc: true\ninference:\n  normalization: 0.0\n  amplification: 0.0\n  invert_spect: false\n",
-        cfg.dim, cfg.depth, cfg.num_bands, cfg.dim_head, cfg.heads, cfg.dim_freqs_in,
+        "model:\n  dim: {}\n  depth: {}\n  stereo: true\n  num_stems: {}\n  time_transformer_depth: 1\n  freq_transformer_depth: 1\n  num_bands: {}\n  dim_head: {}\n  heads: {}\n  flash_attn: false\n  dim_freqs_in: {}\n  sample_rate: 44100\n  stft_n_fft: {}\n  stft_hop_length: {}\n  stft_win_length: {}\n  stft_normalized: false\n  mask_estimator_depth: 2\n  use_torch_checkpoint: false\n  mlp_expansion_factor: 4\n  linear_transformer_depth: 0\n  norm_output: true\n  skip_connection: false\n  zero_dc: true\ninference:\n  normalization: 0.0\n  amplification: 0.0\n  invert_spect: false\n",
+        cfg.dim, cfg.depth, cfg.num_stems, cfg.num_bands, cfg.dim_head, cfg.heads, cfg.dim_freqs_in,
         cfg.stft_n_fft, cfg.stft_hop_length, cfg.stft_win_length
     );
     let config = dir.join("tiny_sep.yaml");
@@ -497,4 +502,137 @@ fn custom_names_cover_partial_outputs_sidecars_and_path_rejection() {
             "{case} must not create output directories"
         );
     }
+}
+
+#[test]
+fn four_stem_public_api_and_cli_keep_independent_named_outputs() {
+    let dir = tmpdir("four_stem_api");
+    let assets = tiny_separator_assets_with_stems(&dir, 4);
+    let separator = load_separator_with_options(
+        &assets,
+        DeviceChoice::Cpu,
+        InferenceOverrides {
+            normalization: 0.0,
+            amplification: 0.0,
+            invert_spect: false,
+        },
+    )
+    .unwrap();
+    let audio = AudioBuffer {
+        sample_rate: 44_100,
+        channels: 1,
+        planar: (0..2000).map(|i| (i as f32 * 0.05).sin() * 0.4).collect(),
+    };
+
+    // This is the actual public candle-roformer 1.0 Stems object, returned by
+    // the karaoke-cli wrapper without converting independent stems to residuals.
+    let named = karaoke_cli::separate_audio(&separator, &audio).unwrap();
+    assert_eq!(named.names(), vec!["drums", "bass", "other", "vocals"]);
+    assert_eq!(named.len(), 4);
+    assert!(named.get("instrumental").is_none());
+    assert_eq!(
+        named.get("vocals").unwrap().planar,
+        named.vocals.planar,
+        "the two-stem convenience vocal field remains available"
+    );
+    assert_eq!(
+        named.get("bass").unwrap().planar,
+        named.instrumental.planar,
+        "without an instrumental stem, the convenience field falls back to the second named estimate"
+    );
+
+    let two_stem_dir = dir.join("two-stem-model");
+    fs::create_dir_all(&two_stem_dir).unwrap();
+    let two_stem_assets = tiny_separator_assets(&two_stem_dir);
+    let two_stem_separator = load_separator_with_options(
+        &two_stem_assets,
+        DeviceChoice::Cpu,
+        InferenceOverrides {
+            normalization: 0.0,
+            amplification: 0.0,
+            invert_spect: false,
+        },
+    )
+    .unwrap();
+    let residual = karaoke_cli::separate_audio(&two_stem_separator, &audio).unwrap();
+    assert_eq!(residual.names(), vec!["vocals", "instrumental"]);
+    for index in 0..audio.planar.len() {
+        assert!(
+            (audio.planar[index]
+                - residual.vocals.planar[index]
+                - residual.instrumental.planar[index])
+                .abs()
+                < 1e-4,
+            "exact two-stem residual must reconstruct input at frame {index}"
+        );
+    }
+
+    let input = dir.join("song.wav");
+    write_wav_f32(&input, &audio).unwrap();
+    let model = dir.join("tiny_sep.safetensors");
+    let config = dir.join("tiny_sep.yaml");
+    let all_outputs = dir.join("all-stems");
+    let all_result = Command::new(env!("CARGO_BIN_EXE_karaoke-cli"))
+        .arg(&input)
+        .arg("--model_filename")
+        .arg(&model)
+        .arg("--config")
+        .arg(&config)
+        .arg("--output_dir")
+        .arg(&all_outputs)
+        .arg("--normalization")
+        .arg("0")
+        .arg("--amplification")
+        .arg("0")
+        .output()
+        .unwrap();
+    assert!(
+        all_result.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&all_result.stdout),
+        String::from_utf8_lossy(&all_result.stderr)
+    );
+    let mut all_names: Vec<String> = fs::read_dir(&all_outputs)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    all_names.sort();
+    assert_eq!(
+        all_names,
+        vec![
+            "song_(Bass)_tiny_sep.wav",
+            "song_(Drums)_tiny_sep.wav",
+            "song_(Other)_tiny_sep.wav",
+            "song_(Vocals)_tiny_sep.wav",
+        ]
+    );
+
+    let single_output = dir.join("one-stem");
+    let single_result = Command::new(env!("CARGO_BIN_EXE_karaoke-cli"))
+        .arg(&input)
+        .arg("--model_filename")
+        .arg(&model)
+        .arg("--config")
+        .arg(&config)
+        .arg("--output_dir")
+        .arg(&single_output)
+        .arg("--single_stem")
+        .arg("bass")
+        .arg("--normalization")
+        .arg("0")
+        .arg("--amplification")
+        .arg("0")
+        .output()
+        .unwrap();
+    assert!(
+        single_result.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&single_result.stdout),
+        String::from_utf8_lossy(&single_result.stderr)
+    );
+    let single_names: Vec<String> = fs::read_dir(&single_output)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    assert_eq!(single_names, vec!["song_(Bass)_tiny_sep.wav"]);
 }
