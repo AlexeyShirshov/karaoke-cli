@@ -6,6 +6,7 @@
 //! nothing about separation or transcription quality (see the crate's
 //! `docs/gates-report.md`).
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -17,7 +18,9 @@ use candle_roformer::wav::{read_audio, write_wav_f32, AudioBuffer};
 use candle_roformer::whisper::TranscribeOptions;
 use candle_roformer::{DeviceChoice, LocalSeparationAssets, LocalWhisperAssets};
 use karaoke_cli::pipeline::{
-    format_timestamp, separate_and_transcribe_file, trim_window, TranscriptionRequest,
+    expand_inputs, format_timestamp, load_separator_with_options, process_batch, run_file,
+    separate_and_transcribe_file, trim_window, FileRequest, InferenceOverrides, OutputFormat,
+    TranscriptionRequest,
 };
 
 fn tmpdir(name: &str) -> PathBuf {
@@ -133,6 +136,8 @@ fn tiny_separator_assets(dir: &Path) -> LocalSeparationAssets {
         stereo: true,
         num_stems: 1,
         num_bands: 4,
+        family: None,
+        freqs_per_bands: None,
         dim_head: 4,
         heads: 1,
         flash_attn: false,
@@ -161,7 +166,7 @@ fn tiny_separator_assets(dir: &Path) -> LocalSeparationAssets {
     varmap.save(&model).unwrap();
 
     let yaml = format!(
-        "model:\n  dim: {}\n  depth: {}\n  stereo: true\n  num_stems: 1\n  time_transformer_depth: 1\n  freq_transformer_depth: 1\n  num_bands: {}\n  dim_head: {}\n  heads: {}\n  flash_attn: false\n  dim_freqs_in: {}\n  sample_rate: 44100\n  stft_n_fft: {}\n  stft_hop_length: {}\n  stft_win_length: {}\n  stft_normalized: false\n  mask_estimator_depth: 2\n  use_torch_checkpoint: false\n  mlp_expansion_factor: 4\n  linear_transformer_depth: 0\n  norm_output: true\n  skip_connection: false\n  zero_dc: true\n",
+        "model:\n  dim: {}\n  depth: {}\n  stereo: true\n  num_stems: 1\n  time_transformer_depth: 1\n  freq_transformer_depth: 1\n  num_bands: {}\n  dim_head: {}\n  heads: {}\n  flash_attn: false\n  dim_freqs_in: {}\n  sample_rate: 44100\n  stft_n_fft: {}\n  stft_hop_length: {}\n  stft_win_length: {}\n  stft_normalized: false\n  mask_estimator_depth: 2\n  use_torch_checkpoint: false\n  mlp_expansion_factor: 4\n  linear_transformer_depth: 0\n  norm_output: true\n  skip_connection: false\n  zero_dc: true\ninference:\n  normalization: 0.0\n  amplification: 0.0\n  invert_spect: false\n",
         cfg.dim, cfg.depth, cfg.num_bands, cfg.dim_head, cfg.heads, cfg.dim_freqs_in,
         cfg.stft_n_fft, cfg.stft_hop_length, cfg.stft_win_length
     );
@@ -289,4 +294,88 @@ fn trim_window_cuts_each_channel_independently() {
         planar: vec![0.0; 10],
     };
     assert!(trim_window(&mut audio, Some(1.0), None).is_err());
+}
+
+#[test]
+fn batch_runs_valid_audio_after_corrupt_audio_and_aggregates_failures() {
+    let dir = tmpdir("batch_continue");
+    let separator_assets = tiny_separator_assets(&dir);
+    let separator = load_separator_with_options(
+        &separator_assets,
+        DeviceChoice::Cpu,
+        InferenceOverrides {
+            normalization: 0.0,
+            amplification: 0.0,
+            invert_spect: false,
+        },
+    )
+    .unwrap();
+
+    let input_dir = dir.join("inputs");
+    fs::create_dir_all(&input_dir).unwrap();
+    let valid = input_dir.join("a-valid.wav");
+    let damaged = input_dir.join("b-damaged.wav");
+    let valid_after_failure = input_dir.join("c-valid.wav");
+    write_wav_f32(
+        &valid,
+        &AudioBuffer {
+            sample_rate: 44_100,
+            channels: 1,
+            planar: (0..2000).map(|i| (i as f32 * 0.05).sin() * 0.4).collect(),
+        },
+    )
+    .unwrap();
+    fs::copy(&valid, &valid_after_failure).unwrap();
+    fs::write(&damaged, b"not an audio file").unwrap();
+
+    let expanded = expand_inputs(std::slice::from_ref(&input_dir));
+    assert!(expanded.errors.is_empty());
+    assert_eq!(
+        expanded.files,
+        vec![valid.clone(), damaged.clone(), valid_after_failure.clone()]
+    );
+    let output_dir = dir.join("out");
+    fs::create_dir_all(&output_dir).unwrap();
+    let existing_vocal = output_dir.join("a-valid_(Vocals)_tiny_sep.wav");
+    fs::write(&existing_vocal, b"preserve this file").unwrap();
+    let report = process_batch(&expanded.files, |input| {
+        run_file(
+            &separator,
+            &FileRequest {
+                input: input.to_path_buf(),
+                output_dir: output_dir.clone(),
+                model_stem: "tiny_sep".into(),
+                overwrite: false,
+                custom_output_names: HashMap::new(),
+                single_stem: None,
+                format: OutputFormat::Wav,
+                bitrate: None,
+                sample_rate: None,
+                start_seconds: None,
+                limit_seconds: None,
+                whisper: None,
+            },
+        )
+        .map_err(|error| error.to_string())
+    });
+
+    assert_eq!(report.succeeded, 1);
+    assert_eq!(report.failed, 2);
+    assert!(report.outcomes[0]
+        .1
+        .as_ref()
+        .unwrap_err()
+        .contains("output file exists"));
+    assert!(report.outcomes[1]
+        .1
+        .as_ref()
+        .unwrap_err()
+        .contains("unsupported"));
+    assert!(report.outcomes[2].1.is_ok());
+    assert_eq!(fs::read(existing_vocal).unwrap(), b"preserve this file");
+    assert!(!output_dir
+        .join("a-valid_(Instrumental)_tiny_sep.wav")
+        .exists());
+    assert!(!output_dir.join("b-damaged_(Vocals)_tiny_sep.wav").exists());
+    assert!(output_dir.join("c-valid_(Vocals)_tiny_sep.wav").exists());
 }

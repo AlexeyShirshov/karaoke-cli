@@ -17,9 +17,9 @@ cargo build --release
 CUDA: `cargo build --release --features cuda` (NVIDIA + CUDA toolkit).
 Metal: `cargo build --release --features metal` (macOS).
 
-The binary is `target/release/karaoke-cli`. The crate is consumed as a pinned
-git dependency, so a checkout needs network access for the first build; bump
-`rev` in `Cargo.toml` after changes in `candle-roformer`.
+The binary is `target/release/karaoke-cli`. The crate is consumed from
+crates.io, so a checkout needs network access for the first build; bump the
+version in `Cargo.toml` after a release of `candle-roformer`.
 
 ## Separate
 

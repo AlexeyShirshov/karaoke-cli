@@ -1,39 +1,128 @@
+use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use candle_roformer::device::DeviceChoice;
 use candle_roformer::whisper::TranscribeOptions;
 use candle_roformer::{LocalSeparationAssets, LocalWhisperAssets};
+use karaoke_cli::catalog;
 use karaoke_cli::pipeline::{
-    run_pipeline_named, separate_and_transcribe_file, OutputNames, TranscriptionRequest,
+    expand_inputs, load_separator_with_options, process_batch, run_file, FileRequest,
+    InferenceOverrides, OutputFormat,
 };
+use log::{LevelFilter, Log, Metadata, Record};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+const CANDLE_ROFORMER_VERSION: &str = env!("CANDLE_ROFORMER_VERSION");
+const CANDLE_CORE_VERSION: &str = env!("CANDLE_CORE_VERSION");
+const CANDLE_ROFORMER_GIT_REVISION: &str = env!("CANDLE_ROFORMER_GIT_REVISION");
+
+struct StderrLogger;
+static LOGGER: StderrLogger = StderrLogger;
+
+impl Log for StderrLogger {
+    fn enabled(&self, metadata: &Metadata<'_>) -> bool {
+        log::max_level() >= metadata.level().to_level_filter()
+    }
+
+    fn log(&self, record: &Record<'_>) {
+        if !self.enabled(record.metadata()) {
+            return;
+        }
+        let elapsed = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        eprintln!(
+            "{}.{:03} {} {}: {}",
+            elapsed.as_secs(),
+            elapsed.subsec_millis(),
+            record.level(),
+            record.target(),
+            record.args()
+        );
+    }
+
+    fn flush(&self) {}
+}
+
+#[derive(Debug)]
+struct Args {
+    inputs: Vec<PathBuf>,
+    model: Option<String>,
+    config: Option<String>,
+    output_dir: PathBuf,
+    model_file_dir: Option<String>,
+    format: OutputFormat,
+    bitrate: Option<u16>,
+    sample_rate: Option<u32>,
+    single_stem: Option<String>,
+    custom_output_names: HashMap<String, String>,
+    device: String,
+    overwrite: bool,
+    start: Option<f64>,
+    duration: Option<f64>,
+    normalization: f32,
+    amplification: f32,
+    invert_spect: bool,
+    transcribe: bool,
+    whisper_model: Option<String>,
+    whisper_config: Option<String>,
+    whisper_tokenizer: Option<String>,
+    whisper_model_dir: Option<String>,
+    language: Option<String>,
+    env_info: bool,
+    debug: bool,
+    log_level: LevelFilter,
+    list_models: bool,
+    list_filter: Option<String>,
+    list_limit: Option<usize>,
+    list_format: String,
+    models_manifest: Option<PathBuf>,
+}
 
 fn print_help() {
     println!("karaoke-cli {}", VERSION);
     println!();
     println!("Usage:");
-    println!("  karaoke-cli [audio files...] --model_filename <file.safetensors> [options]");
+    println!("  karaoke-cli [audio files or directories...] --model_filename <file.safetensors> [options]");
     println!();
     println!("Options:");
-    println!("  --model_filename <file>   MelBandRoformer safetensors checkpoint (or use --model)");
+    println!("  --model_filename <file>   Local checkpoint (alias: --model)");
     println!(
-        "  --config <file.yaml>      Model profile (default: <model-stem>.yaml next to the model)"
+        "  --config <file.yaml>      Model profile (default: <model-stem>.yaml next to model)"
     );
-    println!("  --model_file_dir <dir>    Directory to resolve --model_filename and --config in");
+    println!("  --model_file_dir <dir>    Directory for relative model/config paths");
     println!("  --output_dir <dir>        Output directory (default: .)");
-    println!("  --output_format <fmt>     wav (default; other formats are not implemented yet)");
-    println!("  --single_stem             Write only the vocals stem");
+    println!("  --output_format wav|flac|mp3 (default: wav; M4A/AAC are rejected)");
+    println!("  --output_bitrate <kbps>   MP3 CBR bitrate (default: 192)");
+    println!("  --sample_rate <Hz>        Resample output with candle-roformer's resampler");
+    println!("  --single_stem <name>      Write one named stem, e.g. vocals or drums");
+    println!("  --custom_output_names '<json>'  Stem-name to safe output basename mapping");
+    println!("  --normalization <peak>    Peak normalization threshold (default: 0.9; 0 disables)");
+    println!("  --amplification <peak>    Amplify quiet input below threshold (default: 0.0/off)");
+    println!("  --invert_spect            Build residual in the spectral domain");
     println!("  --device cpu|cuda|metal   Device (default: cpu); unavailable device is an error");
     println!("  --start <seconds>         Start offset in the input");
     println!("  --duration <seconds>      Process only this many seconds");
-    println!("  --overwrite               Replace existing outputs");
+    println!("  --overwrite               Replace existing outputs after preflight");
+    println!(
+        "  --env_info                Print local runtime/device information without model weights"
+    );
+    println!("  --debug                   Alias for --log_level debug");
+    println!("  --log_level <level>       trace|debug|info|warn|error|off (default: info)");
+    println!("  --list_models             List local model metadata only; never downloads weights");
+    println!("  --list_filter <text>      Case-insensitive metadata substring filter");
+    println!("  --list_limit <n>          Maximum number of model rows");
+    println!("  --list_format pretty|json (default: pretty)");
+    println!("  --models_manifest <file>  Optional local JSON/YAML catalog manifest");
     println!();
     println!("Transcription (Whisper, optional):");
-    println!("  --transcribe              Also transcribe the vocal stem (.txt + .json)");
-    println!("  --whisper_model_dir <dir>  Directory with config.json, tokenizer.json, model.safetensors");
+    println!("  --transcribe              Transcribe the vocal stem to .txt and .json");
+    println!(
+        "  --whisper_model_dir <dir> Directory with config.json, tokenizer.json, model.safetensors"
+    );
     println!("  --whisper_model <file>    Override model.safetensors (local path)");
     println!("  --whisper_config <file>   Override config.json (local path)");
     println!("  --whisper_tokenizer <file> Override tokenizer.json (local path)");
@@ -41,127 +130,221 @@ fn print_help() {
     println!("  --version | --help");
 }
 
-struct Args {
-    files: Vec<String>,
-    model: Option<String>,
-    config: Option<String>,
-    output_dir: String,
-    model_file_dir: Option<String>,
-    format: String,
-    single_stem: bool,
-    device: String,
-    overwrite: bool,
-    start: Option<f64>,
-    duration: Option<f64>,
-    transcribe: bool,
-    whisper_model: Option<String>,
-    whisper_config: Option<String>,
-    whisper_tokenizer: Option<String>,
-    whisper_model_dir: Option<String>,
-    language: Option<String>,
+fn value(argv: &[String], index: usize, name: &str) -> Result<String, String> {
+    argv.get(index + 1)
+        .cloned()
+        .ok_or_else(|| format!("{name} requires a value"))
 }
 
-fn value(argv: &[String], i: usize, name: &str) -> Result<String, String> {
-    argv.get(i + 1)
-        .cloned()
-        .ok_or_else(|| format!("{} requires a value", name))
+fn parse_level(value: &str) -> Result<LevelFilter, String> {
+    match value.to_ascii_lowercase().as_str() {
+        "trace" => Ok(LevelFilter::Trace),
+        "debug" => Ok(LevelFilter::Debug),
+        "info" => Ok(LevelFilter::Info),
+        "warn" | "warning" => Ok(LevelFilter::Warn),
+        "error" => Ok(LevelFilter::Error),
+        "off" => Ok(LevelFilter::Off),
+        _ => Err(format!(
+            "invalid --log_level '{value}'; choose trace, debug, info, warn, error, or off"
+        )),
+    }
 }
 
 fn parse_args(argv: &[String]) -> Result<Args, String> {
-    let mut a = Args {
-        files: Vec::new(),
+    let mut args = Args {
+        inputs: Vec::new(),
         model: None,
         config: None,
-        output_dir: ".".to_string(),
+        output_dir: PathBuf::from("."),
         model_file_dir: None,
-        format: "wav".to_string(),
-        single_stem: false,
-        device: "cpu".to_string(),
+        format: OutputFormat::Wav,
+        bitrate: None,
+        sample_rate: None,
+        single_stem: None,
+        custom_output_names: HashMap::new(),
+        device: "cpu".into(),
         overwrite: false,
         start: None,
         duration: None,
+        normalization: 0.9,
+        amplification: 0.0,
+        invert_spect: false,
         transcribe: false,
         whisper_model: None,
         whisper_config: None,
         whisper_tokenizer: None,
         whisper_model_dir: None,
         language: None,
+        env_info: false,
+        debug: false,
+        log_level: LevelFilter::Info,
+        list_models: false,
+        list_filter: None,
+        list_limit: None,
+        list_format: "pretty".into(),
+        models_manifest: None,
     };
-    let mut i = 0;
-    while i < argv.len() {
-        let arg = argv[i].as_str();
+    let mut positional_only = false;
+    let mut index = 0;
+    while index < argv.len() {
+        let arg = argv[index].as_str();
+        if positional_only {
+            args.inputs.push(PathBuf::from(arg));
+            index += 1;
+            continue;
+        }
         match arg {
+            "--" => {
+                positional_only = true;
+                index += 1;
+            }
             "--model_filename" | "--model" => {
-                a.model = Some(value(argv, i, arg)?);
-                i += 2;
+                args.model = Some(value(argv, index, arg)?);
+                index += 2;
             }
             "--config" => {
-                a.config = Some(value(argv, i, arg)?);
-                i += 2;
+                args.config = Some(value(argv, index, arg)?);
+                index += 2;
             }
-            "--output_dir" | "--output" => {
-                a.output_dir = value(argv, i, arg)?;
-                i += 2;
+            "--output_dir" | "--output-dir" | "--output" => {
+                args.output_dir = PathBuf::from(value(argv, index, arg)?);
+                index += 2;
             }
-            "--model_file_dir" => {
-                a.model_file_dir = Some(value(argv, i, arg)?);
-                i += 2;
+            "--model_file_dir" | "--model-file-dir" => {
+                args.model_file_dir = Some(value(argv, index, arg)?);
+                index += 2;
             }
-            "--output_format" => {
-                a.format = value(argv, i, arg)?;
-                i += 2;
+            "--output_format" | "--output-format" => {
+                args.format = OutputFormat::parse(&value(argv, index, arg)?)?;
+                index += 2;
+            }
+            "--output_bitrate" | "--output-bitrate" => {
+                args.bitrate = Some(
+                    value(argv, index, arg)?
+                        .parse()
+                        .map_err(|_| "bad --output_bitrate".to_string())?,
+                );
+                index += 2;
+            }
+            "--sample_rate" | "--sample-rate" => {
+                args.sample_rate = Some(
+                    value(argv, index, arg)?
+                        .parse()
+                        .map_err(|_| "bad --sample_rate".to_string())?,
+                );
+                index += 2;
+            }
+            "--single_stem" | "--single-stem" => {
+                args.single_stem = Some(value(argv, index, arg)?);
+                index += 2;
+            }
+            "--custom_output_names" | "--custom-output-names" => {
+                let json = value(argv, index, arg)?;
+                args.custom_output_names =
+                    serde_json::from_str::<HashMap<String, String>>(&json)
+                        .map_err(|error| format!("invalid --custom_output_names JSON: {error}"))?;
+                index += 2;
             }
             "--device" => {
-                a.device = value(argv, i, arg)?;
-                i += 2;
+                args.device = value(argv, index, arg)?;
+                index += 2;
             }
             "--start" => {
-                a.start = Some(
-                    value(argv, i, arg)?
+                args.start = Some(
+                    value(argv, index, arg)?
                         .parse()
                         .map_err(|_| "bad --start".to_string())?,
                 );
-                i += 2;
+                index += 2;
             }
             "--duration" => {
-                a.duration = Some(
-                    value(argv, i, arg)?
+                args.duration = Some(
+                    value(argv, index, arg)?
                         .parse()
                         .map_err(|_| "bad --duration".to_string())?,
                 );
-                i += 2;
+                index += 2;
+            }
+            "--normalization" | "--normalize" => {
+                args.normalization = value(argv, index, arg)?
+                    .parse()
+                    .map_err(|_| "bad --normalization".to_string())?;
+                index += 2;
+            }
+            "--amplification" => {
+                args.amplification = value(argv, index, arg)?
+                    .parse()
+                    .map_err(|_| "bad --amplification".to_string())?;
+                index += 2;
+            }
+            "--invert_spect" | "--invert-spect" => {
+                args.invert_spect = true;
+                index += 1;
             }
             "--transcribe" => {
-                a.transcribe = true;
-                i += 1;
+                args.transcribe = true;
+                index += 1;
             }
             "--whisper_model" => {
-                a.whisper_model = Some(value(argv, i, arg)?);
-                i += 2;
+                args.whisper_model = Some(value(argv, index, arg)?);
+                index += 2;
             }
             "--whisper_config" => {
-                a.whisper_config = Some(value(argv, i, arg)?);
-                i += 2;
+                args.whisper_config = Some(value(argv, index, arg)?);
+                index += 2;
             }
             "--whisper_tokenizer" => {
-                a.whisper_tokenizer = Some(value(argv, i, arg)?);
-                i += 2;
+                args.whisper_tokenizer = Some(value(argv, index, arg)?);
+                index += 2;
             }
             "--whisper_model_dir" => {
-                a.whisper_model_dir = Some(value(argv, i, arg)?);
-                i += 2;
+                args.whisper_model_dir = Some(value(argv, index, arg)?);
+                index += 2;
             }
             "--language" => {
-                a.language = Some(value(argv, i, arg)?);
-                i += 2;
+                args.language = Some(value(argv, index, arg)?);
+                index += 2;
             }
-            "--single_stem" => {
-                a.single_stem = true;
-                i += 1;
+            "--env_info" | "--env-info" => {
+                args.env_info = true;
+                index += 1;
+            }
+            "--debug" => {
+                args.debug = true;
+                args.log_level = LevelFilter::Debug;
+                index += 1;
+            }
+            "--log_level" | "--log-level" => {
+                args.log_level = parse_level(&value(argv, index, arg)?)?;
+                index += 2;
+            }
+            "--list_models" | "--list-models" => {
+                args.list_models = true;
+                index += 1;
+            }
+            "--list_filter" | "--list-filter" => {
+                args.list_filter = Some(value(argv, index, arg)?);
+                index += 2;
+            }
+            "--list_limit" | "--list-limit" => {
+                args.list_limit = Some(
+                    value(argv, index, arg)?
+                        .parse()
+                        .map_err(|_| "bad --list_limit".to_string())?,
+                );
+                index += 2;
+            }
+            "--list_format" | "--list-format" => {
+                args.list_format = value(argv, index, arg)?;
+                index += 2;
+            }
+            "--models_manifest" | "--models-manifest" => {
+                args.models_manifest = Some(PathBuf::from(value(argv, index, arg)?));
+                index += 2;
             }
             "--overwrite" => {
-                a.overwrite = true;
-                i += 1;
+                args.overwrite = true;
+                index += 1;
             }
             "--version" | "-V" => {
                 println!("{}", VERSION);
@@ -171,184 +354,305 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
                 print_help();
                 process::exit(0);
             }
-            other if other.starts_with('-') => return Err(format!("unknown arg: {}", other)),
+            other if other.starts_with('-') => return Err(format!("unknown argument: {other}")),
             other => {
-                a.files.push(other.to_string());
-                i += 1;
+                args.inputs.push(PathBuf::from(other));
+                index += 1;
             }
         }
     }
-    Ok(a)
+    if args.list_format != "pretty" && args.list_format != "json" {
+        return Err("--list_format must be pretty or json".into());
+    }
+    Ok(args)
 }
 
 fn resolve_in(dir: Option<&str>, name: &str) -> PathBuf {
-    let p = Path::new(name);
-    if p.is_absolute()
-        || p.parent()
-            .map(|x| !x.as_os_str().is_empty())
+    let path = Path::new(name);
+    if path.is_absolute()
+        || path
+            .parent()
+            .map(|parent| !parent.as_os_str().is_empty())
             .unwrap_or(false)
     {
-        return p.to_path_buf();
+        return path.to_path_buf();
     }
-    match dir {
-        Some(d) => Path::new(d).join(name),
-        None => p.to_path_buf(),
+    dir.map(|directory| Path::new(directory).join(name))
+        .unwrap_or_else(|| path.to_path_buf())
+}
+
+fn print_env_info(model_dir: Option<&str>) {
+    let configured_model_dir = model_dir
+        .map(str::to_owned)
+        .or_else(|| env::var("CANDLE_ROFORMER_MODEL_DIR").ok());
+    let parallelism = std::thread::available_parallelism()
+        .map(|value| value.get().to_string())
+        .unwrap_or_else(|_| "unknown".into());
+    let cpu = match DeviceChoice::Cpu.resolve() {
+        Ok(_) => "available",
+        Err(_) => "unavailable",
+    };
+    println!("CLI version: {VERSION}");
+    println!("karaoke-cli package version: {VERSION}");
+    println!("candle-roformer version: {CANDLE_ROFORMER_VERSION}");
+    println!("candle-roformer revision: {CANDLE_ROFORMER_GIT_REVISION}");
+    println!("candle-core version: {CANDLE_CORE_VERSION}");
+    println!(
+        "compiled features: cuda={}, metal={}",
+        cfg!(feature = "cuda"),
+        cfg!(feature = "metal")
+    );
+    println!("CPU device: {cpu}");
+    println!("available parallelism: {parallelism}");
+    println!(
+        "model search path: {}",
+        configured_model_dir
+            .as_deref()
+            .unwrap_or("explicit local paths only; no implicit model downloads")
+    );
+    if cfg!(feature = "cuda") {
+        println!(
+            "CUDA device: {}",
+            match DeviceChoice::Cuda.resolve() {
+                Ok(_) => "available",
+                Err(_) => "unavailable",
+            }
+        );
+    }
+    if cfg!(feature = "metal") {
+        println!(
+            "Metal device: {}",
+            match DeviceChoice::Metal.resolve() {
+                Ok(_) => "available",
+                Err(_) => "unavailable",
+            }
+        );
     }
 }
 
-fn main() {
-    // `separate` is accepted as a legacy prefix.
+fn list_models(args: &Args) -> Result<(), String> {
+    let all = match &args.models_manifest {
+        Some(path) => catalog::load_models(path)?,
+        None => catalog::builtin_models()?,
+    };
+    let matches = catalog::list_models(&all, args.list_filter.as_deref(), args.list_limit);
+    if matches.is_empty() {
+        return Err("model catalog query selected zero models".into());
+    }
+    match args.list_format.as_str() {
+        "pretty" => print!("{}", catalog::render_pretty(&matches)),
+        "json" => println!("{}", catalog::render_json(&matches)?),
+        _ => unreachable!(),
+    }
+    Ok(())
+}
+
+fn run() -> Result<i32, String> {
     let mut argv: Vec<String> = env::args().skip(1).collect();
-    if argv.first().map(|s| s.as_str()) == Some("separate") {
+    if argv.first().map(String::as_str) == Some("separate") {
         argv.remove(0);
     }
-    let args = match parse_args(&argv) {
-        Ok(a) => a,
-        Err(e) => {
-            eprintln!("error: {}", e);
-            print_help();
-            process::exit(2);
-        }
-    };
-    if argv.is_empty() {
+    let args = parse_args(&argv)?;
+    let _ = log::set_logger(&LOGGER);
+    log::set_max_level(args.log_level);
+
+    if args.env_info {
+        print_env_info(args.model_file_dir.as_deref());
+        return Ok(0);
+    }
+    if args.list_models {
+        list_models(&args)?;
+        return Ok(0);
+    }
+    if args.inputs.is_empty() {
         print_help();
-        process::exit(0);
+        return Err("no input audio files or directories".into());
     }
-    if args.files.is_empty() {
-        eprintln!("error: no input audio files");
-        process::exit(2);
-    }
-    if args.format.to_ascii_lowercase() != "wav" {
-        eprintln!(
-            "error: output format '{}' is not implemented yet; only wav is supported",
-            args.format
+    if args.transcribe
+        && args.whisper_model_dir.is_none()
+        && args.whisper_model.is_none()
+        && args.whisper_config.is_none()
+        && args.whisper_tokenizer.is_none()
+    {
+        return Err(
+            "--transcribe requires --whisper_model_dir (or explicit Whisper asset paths)".into(),
         );
-        process::exit(2);
     }
-    let model_name = match &args.model {
-        Some(m) => m.clone(),
-        None => {
-            eprintln!("error: --model_filename is required");
-            process::exit(2);
-        }
-    };
-    let model_path = resolve_in(args.model_file_dir.as_deref(), &model_name);
+    karaoke_cli::pipeline::validate_output_options(args.format, args.bitrate, args.sample_rate)?;
+
+    let expansion = expand_inputs(&args.inputs);
+    if expansion.files.is_empty() {
+        let detail = if expansion.errors.is_empty() {
+            "input expansion selected zero audio files".to_string()
+        } else {
+            expansion.errors.join("\n")
+        };
+        return Err(detail);
+    }
+
+    let model_name = args
+        .model
+        .as_deref()
+        .ok_or_else(|| "--model_filename is required".to_string())?;
+    let model_path = resolve_in(args.model_file_dir.as_deref(), model_name);
     let model_stem = model_path
         .file_stem()
-        .and_then(|s| s.to_str())
+        .and_then(|stem| stem.to_str())
         .unwrap_or("model")
         .to_string();
     let config_path = match &args.config {
-        Some(c) => resolve_in(args.model_file_dir.as_deref(), c),
+        Some(config) => resolve_in(args.model_file_dir.as_deref(), config),
         None => model_path.with_extension("yaml"),
     };
     let device = match args.device.to_ascii_lowercase().as_str() {
         "cpu" => DeviceChoice::Cpu,
         "cuda" => DeviceChoice::Cuda,
         "metal" => DeviceChoice::Metal,
-        other => {
-            eprintln!("error: unknown device '{}'", other);
-            process::exit(2);
-        }
+        other => return Err(format!("unknown device '{other}'")),
     };
+    let separator_assets = LocalSeparationAssets::new(model_path.clone(), config_path);
+    let separator = load_separator_with_options(
+        &separator_assets,
+        device,
+        InferenceOverrides {
+            normalization: args.normalization,
+            amplification: args.amplification,
+            invert_spect: args.invert_spect,
+        },
+    )
+    .map_err(|error| format!("model {}: {error}", model_path.display()))?;
 
-    let whisper_assets = if args.transcribe {
+    let whisper = if args.transcribe {
         let dir = args.whisper_model_dir.as_deref();
-        if dir.is_none()
-            && args.whisper_model.is_none()
-            && args.whisper_config.is_none()
-            && args.whisper_tokenizer.is_none()
-        {
-            eprintln!(
-                "error: --transcribe requires --whisper_model_dir (or explicit whisper asset paths)"
-            );
-            process::exit(2);
-        }
         let resolve = |explicit: &Option<String>, default: &str| match explicit {
             Some(path) => resolve_in(dir, path),
             None => resolve_in(dir, default),
         };
-        Some(LocalWhisperAssets::new(
+        let assets = LocalWhisperAssets::new(
+            resolve(&args.whisper_model, "model.safetensors"),
             resolve(&args.whisper_config, "config.json"),
             resolve(&args.whisper_tokenizer, "tokenizer.json"),
-            resolve(&args.whisper_model, "model.safetensors"),
+        );
+        let language = match args.language.as_deref() {
+            None | Some("auto") => None,
+            Some(language) => Some(language.to_string()),
+        };
+        Some((
+            assets,
+            TranscribeOptions {
+                language,
+                ..Default::default()
+            },
         ))
     } else {
         None
     };
-    let language = match args.language.as_deref() {
-        None => None,
-        Some(code) if code.eq_ignore_ascii_case("auto") => None,
-        Some(code) => Some(code.to_string()),
-    };
 
-    for input in &args.files {
-        let stem = Path::new(input)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("audio");
-        let vocals = format!("{}_(Vocals)_{}.wav", stem, model_stem);
-        let instrumental = if args.single_stem {
-            None
-        } else {
-            Some(format!("{}_(Instrumental)_{}.wav", stem, model_stem))
+    let selected_count = expansion.files.len();
+    let discovery_failure_count = expansion.errors.len();
+    let mut failures = expansion.errors;
+    let batch = process_batch(&expansion.files, |input| {
+        println!("separating {}", input.display());
+        let request = FileRequest {
+            input: input.to_path_buf(),
+            output_dir: args.output_dir.clone(),
+            model_stem: model_stem.clone(),
+            overwrite: args.overwrite,
+            custom_output_names: args.custom_output_names.clone(),
+            single_stem: args.single_stem.clone(),
+            format: args.format,
+            bitrate: args.bitrate,
+            sample_rate: args.sample_rate,
+            start_seconds: args.start,
+            limit_seconds: args.duration,
+            whisper: whisper.clone(),
         };
-        println!("separating {} -> {}/{}", input, args.output_dir, vocals);
-        if let Some(whisper) = &whisper_assets {
-            let request = TranscriptionRequest {
-                separator: LocalSeparationAssets::new(model_path.clone(), config_path.clone()),
-                whisper: whisper.clone(),
-                input: PathBuf::from(input),
-                output_dir: PathBuf::from(&args.output_dir),
-                device,
-                transcribe_options: TranscribeOptions {
-                    language: language.clone(),
-                    ..Default::default()
-                },
-                overwrite: args.overwrite,
-                start_seconds: args.start,
-                limit_seconds: args.duration,
-                single_stem: args.single_stem,
-            };
-            match separate_and_transcribe_file(&request) {
-                Ok(out) => {
-                    let language = out.transcript.language.as_deref().unwrap_or("unknown");
-                    println!(
-                        "transcribed {} segments (language {}, {:.1}s) -> {}",
-                        out.transcript.segments.len(),
-                        language,
-                        out.duration_seconds,
-                        out.text.display()
-                    );
-                    if let Some(instrumental) = &out.instrumental {
-                        println!("instrumental: {}", instrumental.display());
-                    }
-                    println!("json:         {}", out.json.display());
+        run_file(&separator, &request).map_err(|error| error.to_string())
+    });
+    let success_count = batch.succeeded;
+    for (input, outcome) in batch.outcomes {
+        match outcome {
+            Ok(result) => {
+                for stem in result.stems {
+                    println!("{}: {}", stem.name, stem.path.display());
                 }
-                Err(e) => {
-                    eprintln!("error: {}", e);
-                    process::exit(1);
+                if let Some(text) = result.text {
+                    println!("transcript: {}", text.display());
+                }
+                if let Some(json) = result.json {
+                    println!("json: {}", json.display());
                 }
             }
-        } else {
-            let names = OutputNames {
-                vocals: &vocals,
-                instrumental: instrumental.as_deref(),
-            };
-            if let Err(e) = run_pipeline_named(
-                model_path.to_str().unwrap_or_default(),
-                config_path.to_str().unwrap_or_default(),
-                input,
-                &args.output_dir,
-                device,
-                args.overwrite,
-                args.start,
-                args.duration,
-                &names,
-            ) {
-                eprintln!("error: {}", e);
-                process::exit(1);
+            Err(error) => {
+                let failure = format!("{}: {error}", input.display());
+                eprintln!("error: {failure}");
+                failures.push(failure);
             }
         }
+    }
+    println!(
+        "batch summary: {} input(s), {} succeeded, {} failed",
+        selected_count + discovery_failure_count,
+        success_count,
+        failures.len()
+    );
+    if failures.is_empty() && success_count == 0 {
+        return Err("batch executed zero files".into());
+    }
+    if !failures.is_empty() {
+        eprintln!("failed inputs:");
+        for failure in failures {
+            eprintln!("  - {failure}");
+        }
+        return Ok(1);
+    }
+    Ok(0)
+}
+
+fn main() {
+    match run() {
+        Ok(code) => process::exit(code),
+        Err(error) => {
+            eprintln!("error: {error}");
+            process::exit(2);
+        }
+    }
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+
+    #[test]
+    fn exact_ticket_flags_parse_and_custom_names_are_json() {
+        let argv = vec![
+            "--list_models".into(),
+            "--list_filter".into(),
+            "vocals".into(),
+            "--list_limit".into(),
+            "2".into(),
+            "--list_format".into(),
+            "json".into(),
+            "--custom_output_names".into(),
+            r#"{"vocals":"my-song"}"#.into(),
+            "--single_stem".into(),
+            "Vocals".into(),
+        ];
+        let parsed = parse_args(&argv).unwrap();
+        assert!(parsed.list_models);
+        assert_eq!(parsed.list_filter.as_deref(), Some("vocals"));
+        assert_eq!(parsed.list_limit, Some(2));
+        assert_eq!(parsed.list_format, "json");
+        assert_eq!(parsed.custom_output_names["vocals"], "my-song");
+        assert_eq!(parsed.single_stem.as_deref(), Some("Vocals"));
+    }
+
+    #[test]
+    fn debug_is_an_info_backend_alias_and_invalid_levels_fail() {
+        assert_eq!(parse_level("info").unwrap(), LevelFilter::Info);
+        assert!(parse_level("verboseish").is_err());
+        let parsed = parse_args(&["--debug".into()]).unwrap();
+        assert!(parsed.debug);
+        assert_eq!(parsed.log_level, LevelFilter::Debug);
     }
 }
