@@ -1,0 +1,41 @@
+Diff in /home/alex/sources/karaoke-cli/src/main.rs:665:
+             .split("[[package]]")
+             .skip(1)
+             .find(|package| {
+[31m-                package.lines().any(|line| {
+(B[m[31m-                    line.trim() == format!("name = \"{package_name}\"")
+(B[m[31m-                })
+(B[m[32m+                package
+(B[m[32m+                    .lines()
+(B[m[32m+                    .any(|line| line.trim() == format!("name = \"{package_name}\""))
+(B[m             })
+             .and_then(|package| {
+                 package.lines().find_map(|line| {
+Diff in /home/alex/sources/karaoke-cli/src/main.rs:784:
+         let locked_roformer_version = cargo_lock_field("candle-roformer", "version");
+         let locked_roformer_source = cargo_lock_field("candle-roformer", "source");
+         let locked_core_version = cargo_lock_field("candle-core", "version");
+[31m-        let source_label = if locked_roformer_source
+(B[m[31m-            == "registry+https://github.com/rust-lang/crates.io-index"
+(B[m[31m-        {
+(B[m[31m-            "crates.io registry"
+(B[m[31m-        } else if locked_roformer_source.starts_with("registry+") {
+(B[m[31m-            "registry"
+(B[m[31m-        } else if locked_roformer_source.starts_with("git+") {
+(B[m[31m-            "git"
+(B[m[31m-        } else {
+(B[m[31m-            "other source"
+(B[m[31m-        };
+(B[m[32m+        let source_label =
+(B[m[32m+            if locked_roformer_source == "registry+https://github.com/rust-lang/crates.io-index" {
+(B[m[32m+                "crates.io registry"
+(B[m[32m+            } else if locked_roformer_source.starts_with("registry+") {
+(B[m[32m+                "registry"
+(B[m[32m+            } else if locked_roformer_source.starts_with("git+") {
+(B[m[32m+                "git"
+(B[m[32m+            } else {
+(B[m[32m+                "other source"
+(B[m[32m+            };
+(B[m         assert!(report.contains(&format!("CLI version: {VERSION}")));
+         assert!(report.contains(&format!(
+             "candle-roformer version: {locked_roformer_version} ({source_label})"

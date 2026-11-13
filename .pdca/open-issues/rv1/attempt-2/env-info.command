@@ -1,0 +1,1 @@
+env CMAKE_POLICY_VERSION_MINIMUM=3.5 CARGO_BUILD_JOBS=1 /home/alex/.cargo/bin/cargo run --offline --locked -- --env_info

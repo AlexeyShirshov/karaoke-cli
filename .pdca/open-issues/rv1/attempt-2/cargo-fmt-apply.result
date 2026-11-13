@@ -1,0 +1,3 @@
+command: /home/alex/.cargo/bin/cargo fmt --all
+environment: CWD=/home/alex/sources/karaoke-cli; additional overrides none
+exit_status: 0

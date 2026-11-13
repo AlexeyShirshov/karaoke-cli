@@ -1,0 +1,10 @@
+CLI version: 0.1.0
+karaoke-cli package version: 0.1.0
+candle-roformer version: 1.0.0 (crates.io registry)
+candle-core version: 0.11.1
+compiled features: cuda=false, metal=false
+CPU device: available
+available parallelism: 8
+model search path: explicit local paths only; no implicit model downloads
+resolved model checkpoint: not specified (not required for --env_info)
+resolved model config: not specified (not required for --env_info)

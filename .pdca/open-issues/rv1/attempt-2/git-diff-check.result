@@ -1,0 +1,3 @@
+command: git diff --cached --check
+environment: CWD=/home/alex/sources/karaoke-cli; no overrides
+exit_status: 2

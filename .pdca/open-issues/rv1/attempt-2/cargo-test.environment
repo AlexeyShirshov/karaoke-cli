@@ -1,0 +1,5 @@
+CWD=/home/alex/sources/karaoke-cli
+CMAKE_POLICY_VERSION_MINIMUM=3.5
+CARGO_BUILD_JOBS=1
+offline=true
+locked=true
