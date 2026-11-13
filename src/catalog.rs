@@ -117,6 +117,7 @@ pub fn render_json(models: &[ModelInfo]) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
     fn builtin_catalog_is_local_filterable_and_stable_json() {
@@ -127,5 +128,53 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value[0]["name"], models[0].name);
         assert!(render_pretty(&models).starts_with("NAME | FILENAME | ARCHITECTURE"));
+    }
+
+    #[test]
+    fn fixture_catalog_filter_limit_pretty_columns_and_json_schema_are_stable() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("model-catalog.json");
+        let models = load_models(&fixture).unwrap();
+        assert_eq!(models.len(), 3);
+
+        let filtered = list_models(&models, Some("MELBANDROFORMER"), Some(1));
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].name, "Fixture RoseRoformer vocals");
+        let bass = list_models(&models, Some("bass"), None);
+        assert_eq!(bass.len(), 1);
+        assert_eq!(bass[0].filename, "fixture-bass.safetensors");
+
+        let pretty = render_pretty(&models);
+        assert_eq!(
+            pretty.lines().next(),
+            Some("NAME | FILENAME | ARCHITECTURE | STEMS | SDR | CHECKSUM | WEIGHTS")
+        );
+        assert_eq!(pretty.lines().count(), 4);
+        assert!(pretty.contains("Fixture RoseRoformer vocals | fixture-rose.safetensors"));
+
+        let json = render_json(&filtered).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let row = value[0].as_object().unwrap();
+        let actual_keys: HashSet<&str> = row.keys().map(String::as_str).collect();
+        let expected_keys: HashSet<&str> = [
+            "name",
+            "filename",
+            "architecture",
+            "stems",
+            "SDR",
+            "checksum",
+            "weights",
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(actual_keys, expected_keys);
+        assert_eq!(row["name"], "Fixture RoseRoformer vocals");
+        assert_eq!(row["SDR"], 7.25);
+        assert!(
+            row.get("sdr").is_none(),
+            "JSON schema keeps the published SDR key"
+        );
     }
 }

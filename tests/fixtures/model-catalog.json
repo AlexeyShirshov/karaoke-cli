@@ -1,0 +1,27 @@
+[
+  {
+    "name": "Fixture RoseRoformer vocals",
+    "filename": "fixture-rose.safetensors",
+    "architecture": "MelBandRoformer",
+    "stems": ["vocals", "drums"],
+    "SDR": 7.25,
+    "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "weights": "Synthetic fixture; no checkpoint is provided or downloaded."
+  },
+  {
+    "name": "Fixture BassNet instrumental",
+    "filename": "fixture-bass.safetensors",
+    "architecture": "BSRoformer",
+    "stems": ["bass", "instrumental"],
+    "weights": "Synthetic fixture; no checkpoint is provided or downloaded."
+  },
+  {
+    "name": "Fixture Echo vocals",
+    "filename": "fixture-echo.safetensors",
+    "architecture": "MelBandRoformer",
+    "stems": ["vocals", "other"],
+    "SDR": 5.0,
+    "checksum": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "weights": "Synthetic fixture; no checkpoint is provided or downloaded."
+  }
+]
