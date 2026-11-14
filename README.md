@@ -204,8 +204,32 @@ redistributes them.
 | KimberleyJSN / Kijai mirror | `configs/kijai_melband_384.yaml` in the crate | `MelBandRoformer_fp32.safetensors` as published |
 | Whisper (tiny..large, `*.en` or multilingual) | `config.json` from the checkpoint | `model.safetensors` + `tokenizer.json` |
 
-Whisper assets must be in the Candle-compatible layout; f32 only, no
-GGUF/quantized path.
+### Whisper assets
+
+Whisper needs its own directory holding `config.json`, `tokenizer.json` and
+`model.safetensors` from the same checkpoint, in the Candle fp32 layout; f32
+only, no GGUF/quantized path. Two helper scripts fetch them from
+`openai/whisper-<size>` on Hugging Face, which the CLI itself never does:
+
+```sh
+./scripts/fetch-whisper.sh small /models/whisper-small
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\fetch-whisper.ps1 -Model small -Destination D:\whisper-small
+```
+
+Both accept `tiny`, `base`, `small`, `medium`, `large-v1..v3` and the `*.en`
+variants, download into a temporary `.part` file, and verify the result (JSON
+parses, weights are not an error page) before reporting. Then run with
+`--transcribe --whisper_model_dir <dir> --language ru`; transcription stays
+offline.
+
+The model profile YAMLs named in the table ship inside the `candle-roformer`
+crate package under `configs/`, e.g.
+`~/.cargo/registry/src/*/candle-roformer-1.0.0/configs/kijai_melband_384.yaml`,
+or from the crate's repository. Place the profile next to the checkpoint as
+`<model-stem>.yaml` to skip `--config`.
 
 ## Status and limits
 
