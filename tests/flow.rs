@@ -20,8 +20,8 @@ use candle_roformer::whisper::TranscribeOptions;
 use candle_roformer::{DeviceChoice, LocalSeparationAssets, LocalWhisperAssets};
 use karaoke_cli::pipeline::{
     expand_inputs, format_timestamp, load_separator_with_options, process_batch, run_file,
-    separate_and_transcribe_file, trim_window, FileRequest, InferenceOverrides, OutputFormat,
-    TranscriptionRequest,
+    run_file_with_chunks, separate_and_transcribe_file, trim_window, ChunkConfig, FileRequest,
+    InferenceOverrides, OutputFormat, TranscriptionRequest,
 };
 
 fn tmpdir(name: &str) -> PathBuf {
@@ -842,5 +842,192 @@ fn level_processing_defaults_and_residual_modes_match_reference_semantics() {
     assert!(
         max_delta(&inverted.instrumental.planar, &expected_spectral_residual) <= 1e-5,
         "--invert_spect secondary stem must match complex-STFT subtraction"
+    );
+}
+
+fn chunked_request(input: PathBuf, output_dir: PathBuf) -> FileRequest {
+    FileRequest {
+        input,
+        output_dir,
+        model_stem: "tiny_sep".into(),
+        overwrite: false,
+        custom_output_names: HashMap::new(),
+        single_stem: None,
+        format: OutputFormat::Wav,
+        bitrate: None,
+        sample_rate: None,
+        start_seconds: None,
+        limit_seconds: None,
+        whisper: None,
+    }
+}
+
+fn stereo_source(sample_rate: u32, frames: usize) -> AudioBuffer {
+    let mut planar = Vec::with_capacity(frames * 2);
+    planar.extend((0..frames).map(|i| (i as f32 * 0.031).sin() * 0.4));
+    planar.extend((0..frames).map(|i| (i as f32 * 0.017).cos() * 0.3));
+    AudioBuffer {
+        sample_rate,
+        channels: 2,
+        planar,
+    }
+}
+
+#[test]
+fn chunked_separation_crossfades_and_preserves_length_and_residual() {
+    let dir = tmpdir("chunk_residual");
+    let assets = tiny_separator_assets(&dir);
+    let separator = load_separator_with_options(
+        &assets,
+        DeviceChoice::Cpu,
+        InferenceOverrides {
+            normalization: 0.0,
+            amplification: 0.0,
+            invert_spect: false,
+        },
+    )
+    .unwrap();
+
+    let input_audio = stereo_source(44_100, 52_920);
+    let input = dir.join("long.wav");
+    write_wav_f32(&input, &input_audio).unwrap();
+
+    let out_dir = dir.join("chunked");
+    let chunk = ChunkConfig {
+        chunk_seconds: 1.0,
+        overlap_seconds: 0.2,
+        normalization: 0.0,
+        amplification: 0.0,
+    };
+    let mut events = Vec::new();
+    let result = run_file_with_chunks(
+        &separator,
+        &chunked_request(input, out_dir.clone()),
+        Some(&chunk),
+        &mut |progress| events.push((progress.index, progress.total)),
+    )
+    .unwrap();
+
+    assert_eq!(result.stems.len(), 2);
+    assert!(
+        events.len() >= 2,
+        "a 1.2 s input in 1 s chunks must report more than one chunk, got {}",
+        events.len()
+    );
+    for (position, (index, total)) in events.iter().enumerate() {
+        assert_eq!(*index, position + 1, "chunk events must be sequential");
+        assert_eq!(*total, events.len(), "every event reports the same total");
+    }
+
+    let vocals = read_audio(out_dir.join("long_(Vocals)_tiny_sep.wav")).unwrap();
+    let instrumental = read_audio(out_dir.join("long_(Instrumental)_tiny_sep.wav")).unwrap();
+    assert_eq!(vocals.planar.len(), input_audio.planar.len());
+    assert_eq!(instrumental.planar.len(), input_audio.planar.len());
+
+    let mut worst = 0f32;
+    for (frame, source) in input_audio.planar.iter().enumerate() {
+        let delta = (source - vocals.planar[frame] - instrumental.planar[frame]).abs();
+        if delta > worst {
+            worst = delta;
+        }
+    }
+    assert!(
+        worst <= 1e-5,
+        "a linear crossfade must keep vocals + instrumental = input, worst delta {worst}"
+    );
+}
+
+#[test]
+fn chunked_separation_applies_the_level_threshold_once_over_every_stem() {
+    let dir = tmpdir("chunk_levels");
+    let assets = tiny_separator_assets(&dir);
+    let separator = load_separator_with_options(
+        &assets,
+        DeviceChoice::Cpu,
+        InferenceOverrides {
+            normalization: 0.0,
+            amplification: 0.0,
+            invert_spect: false,
+        },
+    )
+    .unwrap();
+
+    let input_audio = stereo_source(44_100, 52_920);
+    let input = dir.join("levels.wav");
+    write_wav_f32(&input, &input_audio).unwrap();
+
+    let out_dir = dir.join("normalized");
+    let chunk = ChunkConfig {
+        chunk_seconds: 1.0,
+        overlap_seconds: 0.2,
+        normalization: 0.9,
+        amplification: 0.0,
+    };
+    run_file_with_chunks(
+        &separator,
+        &chunked_request(input, out_dir.clone()),
+        Some(&chunk),
+        &mut |_| {},
+    )
+    .unwrap();
+
+    for stem in ["Vocals", "Instrumental"] {
+        let decoded = read_audio(out_dir.join(format!("levels_({stem})_tiny_sep.wav"))).unwrap();
+        let peak = decoded
+            .planar
+            .iter()
+            .fold(0f32, |peak, sample| peak.max(sample.abs()));
+        assert!(
+            (peak - 0.9).abs() <= 1e-4,
+            "{stem} peak {peak} must be the whole-file threshold, not a per-chunk one"
+        );
+    }
+}
+
+#[test]
+fn chunked_mode_keeps_level_processing_when_the_input_fits_one_chunk() {
+    let dir = tmpdir("chunk_short");
+    let assets = tiny_separator_assets(&dir);
+    let separator = load_separator_with_options(
+        &assets,
+        DeviceChoice::Cpu,
+        InferenceOverrides {
+            normalization: 0.0,
+            amplification: 0.0,
+            invert_spect: false,
+        },
+    )
+    .unwrap();
+
+    let input_audio = stereo_source(44_100, 13_230);
+    let input = dir.join("short.wav");
+    write_wav_f32(&input, &input_audio).unwrap();
+
+    let out_dir = dir.join("short-out");
+    let chunk = ChunkConfig {
+        chunk_seconds: 5.0,
+        overlap_seconds: 1.0,
+        normalization: 0.9,
+        amplification: 0.0,
+    };
+    let mut events = Vec::new();
+    run_file_with_chunks(
+        &separator,
+        &chunked_request(input, out_dir.clone()),
+        Some(&chunk),
+        &mut |progress| events.push((progress.index, progress.total)),
+    )
+    .unwrap();
+
+    assert_eq!(events, vec![(1, 1)], "a short input is one chunk");
+    let vocals = read_audio(out_dir.join("short_(Vocals)_tiny_sep.wav")).unwrap();
+    assert_eq!(vocals.planar.len(), input_audio.planar.len());
+    let peak = vocals
+        .planar
+        .iter()
+        .fold(0f32, |peak, sample| peak.max(sample.abs()));
+    assert!(
+        (peak - 0.9).abs() <= 1e-4,
+        "chunked mode must still normalise a single-chunk input, peak {peak}"
     );
 }

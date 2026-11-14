@@ -9,8 +9,8 @@ use candle_roformer::whisper::TranscribeOptions;
 use candle_roformer::{LocalSeparationAssets, LocalWhisperAssets};
 use karaoke_cli::catalog;
 use karaoke_cli::pipeline::{
-    expand_inputs, load_separator_with_options, process_batch, run_file, FileRequest,
-    InferenceOverrides, OutputFormat,
+    expand_inputs, load_separator_with_options, process_batch, run_file_with_chunks, ChunkConfig,
+    ChunkProgress, FileRequest, InferenceOverrides, OutputFormat,
 };
 use log::{LevelFilter, Log, Metadata, Record};
 
@@ -63,6 +63,8 @@ struct Args {
     overwrite: bool,
     start: Option<f64>,
     duration: Option<f64>,
+    chunk_seconds: Option<f64>,
+    chunk_overlap: Option<f64>,
     normalization: f32,
     amplification: f32,
     invert_spect: bool,
@@ -106,6 +108,10 @@ fn print_help() {
     println!("  --device cpu|cuda|metal   Device (default: cpu); unavailable device is an error");
     println!("  --start <seconds>         Start offset in the input");
     println!("  --duration <seconds>      Process only this many seconds");
+    println!(
+        "  --chunk_seconds <seconds> Separate in overlapping chunks and report per-chunk progress"
+    );
+    println!("  --chunk_overlap <seconds> Crossfade width (default: 10% of the chunk, 0.25..5 s)");
     println!("  --overwrite               Replace existing outputs after preflight");
     println!(
         "  --env_info                Print local runtime/device information without model weights"
@@ -166,6 +172,8 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         overwrite: false,
         start: None,
         duration: None,
+        chunk_seconds: None,
+        chunk_overlap: None,
         normalization: 0.9,
         amplification: 0.0,
         invert_spect: false,
@@ -262,6 +270,22 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
                     value(argv, index, arg)?
                         .parse()
                         .map_err(|_| "bad --duration".to_string())?,
+                );
+                index += 2;
+            }
+            "--chunk_seconds" | "--chunk-seconds" => {
+                args.chunk_seconds = Some(
+                    value(argv, index, arg)?
+                        .parse()
+                        .map_err(|_| "bad --chunk_seconds".to_string())?,
+                );
+                index += 2;
+            }
+            "--chunk_overlap" | "--chunk-overlap" => {
+                args.chunk_overlap = Some(
+                    value(argv, index, arg)?
+                        .parse()
+                        .map_err(|_| "bad --chunk_overlap".to_string())?,
                 );
                 index += 2;
             }
@@ -547,12 +571,36 @@ fn run() -> Result<i32, String> {
         other => return Err(format!("unknown device '{other}'")),
     };
     let separator_assets = LocalSeparationAssets::new(model_path.clone(), config_path);
+    let chunk_config = match args.chunk_seconds {
+        Some(chunk_seconds) => {
+            let config = ChunkConfig::new(
+                chunk_seconds,
+                args.chunk_overlap,
+                args.normalization,
+                args.amplification,
+            );
+            config.validate()?;
+            Some(config)
+        }
+        None => None,
+    };
+    // With chunking the CLI applies amplification and normalization once over
+    // the whole file; leaving them in the model would renormalise every chunk.
+    let model_levels = chunk_config.is_none();
     let separator = load_separator_with_options(
         &separator_assets,
         device,
         InferenceOverrides {
-            normalization: args.normalization,
-            amplification: args.amplification,
+            normalization: if model_levels {
+                args.normalization
+            } else {
+                0.0
+            },
+            amplification: if model_levels {
+                args.amplification
+            } else {
+                0.0
+            },
             invert_spect: args.invert_spect,
         },
     )
@@ -603,7 +651,19 @@ fn run() -> Result<i32, String> {
             limit_seconds: args.duration,
             whisper: whisper.clone(),
         };
-        run_file(&separator, &request).map_err(|error| error.to_string())
+        let mut reporter = |chunk: ChunkProgress| {
+            let percent = if chunk.total == 0 {
+                100.0
+            } else {
+                chunk.index as f64 * 100.0 / chunk.total as f64
+            };
+            eprintln!(
+                "  chunk {}/{} done ({percent:.0}%, {:.0}s elapsed)",
+                chunk.index, chunk.total, chunk.elapsed_seconds
+            );
+        };
+        run_file_with_chunks(&separator, &request, chunk_config.as_ref(), &mut reporter)
+            .map_err(|error| error.to_string())
     });
     let success_count = batch.succeeded;
     for (input, outcome) in batch.outcomes {
@@ -760,6 +820,31 @@ mod cli_tests {
         assert_eq!(explicit.normalization, 0.0);
         assert_eq!(explicit.amplification, 0.25);
         assert!(explicit.invert_spect);
+    }
+
+    #[test]
+    fn chunk_flags_parse_and_reject_unsafe_geometry() {
+        let parsed = parse_args(&[
+            "song.wav".into(),
+            "--chunk_seconds".into(),
+            "45".into(),
+            "--chunk_overlap".into(),
+            "2.5".into(),
+        ])
+        .unwrap();
+        assert_eq!(parsed.chunk_seconds, Some(45.0));
+        assert_eq!(parsed.chunk_overlap, Some(2.5));
+
+        let default_overlap = parse_args(&["--chunk_seconds".into(), "60".into()]).unwrap();
+        assert_eq!(default_overlap.chunk_overlap, None);
+        assert_eq!(
+            karaoke_cli::pipeline::default_chunk_overlap(60.0),
+            5.0,
+            "default crossfade must be capped"
+        );
+
+        assert!(parse_args(&["--chunk_seconds".into(), "fast".into()]).is_err());
+        assert!(parse_args(&["--chunk_overlap".into()]).is_err());
     }
 
     #[test]

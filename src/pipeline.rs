@@ -712,9 +712,263 @@ fn supported_mp3_bitrate(bitrate: u16) -> bool {
     )
 }
 
+/// Chunked separation: split the input into overlapping windows, separate each
+/// window, and stitch the results with a linear crossfade.
+///
+/// Level processing is deliberately taken over from the crate: `amplification`
+/// and `normalization` are applied once to the whole file, because the crate
+/// would otherwise renormalise every chunk by its own peak.
+#[derive(Debug, Clone, Copy)]
+pub struct ChunkConfig {
+    pub chunk_seconds: f64,
+    pub overlap_seconds: f64,
+    pub normalization: f32,
+    pub amplification: f32,
+}
+
+impl ChunkConfig {
+    pub fn new(
+        chunk_seconds: f64,
+        overlap_seconds: Option<f64>,
+        normalization: f32,
+        amplification: f32,
+    ) -> Self {
+        Self {
+            chunk_seconds,
+            overlap_seconds: overlap_seconds
+                .unwrap_or_else(|| default_chunk_overlap(chunk_seconds)),
+            normalization,
+            amplification,
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.chunk_seconds.is_finite() || self.chunk_seconds < 1.0 {
+            return Err(format!(
+                "unsupported --chunk_seconds {}; use at least 1 second",
+                self.chunk_seconds
+            ));
+        }
+        if !self.overlap_seconds.is_finite() || self.overlap_seconds <= 0.0 {
+            return Err("--chunk_overlap must be a positive number of seconds".into());
+        }
+        if self.overlap_seconds > self.chunk_seconds / 2.0 {
+            return Err(format!(
+                "--chunk_overlap {} s must not exceed half of --chunk_seconds {} s",
+                self.overlap_seconds, self.chunk_seconds
+            ));
+        }
+        Ok(())
+    }
+
+    fn chunk_frames(&self, sample_rate: u32) -> usize {
+        ((self.chunk_seconds * sample_rate as f64).round() as usize).max(1)
+    }
+
+    fn overlap_frames(&self, sample_rate: u32) -> usize {
+        ((self.overlap_seconds * sample_rate as f64).round() as usize).max(1)
+    }
+}
+
+/// Default crossfade: 10% of the chunk, clamped to 0.25..=5 s.
+pub fn default_chunk_overlap(chunk_seconds: f64) -> f64 {
+    (chunk_seconds * 0.1).clamp(0.25, 5.0)
+}
+
+/// Progress event emitted once per finished chunk.
+#[derive(Debug, Clone, Copy)]
+pub struct ChunkProgress {
+    pub index: usize,
+    pub total: usize,
+    pub elapsed_seconds: f64,
+}
+
+/// Separate a buffer that spans several chunks.
+///
+/// Every chunk is computed with one `overlap` of extra context on both sides,
+/// so the crossfaded region sits inside the model's receptive field, and
+/// adjacent chunks' linear weights sum to exactly one at every frame. Thanks to
+/// that, a residual stem still satisfies `vocals + instrumental = input` and
+/// the per-stem level rule is applied once over the stitched result.
+fn separate_chunked(
+    separator: &Separator,
+    audio: &AudioBuffer,
+    config: &ChunkConfig,
+    progress: &mut dyn FnMut(ChunkProgress),
+) -> Result<Vec<(String, AudioBuffer)>, Error> {
+    config
+        .validate()
+        .map_err(|message| Error::Audio(AudioError::UnsupportedFormat(message)))?;
+
+    let channels = audio.channels.max(1) as usize;
+    let frames = audio.planar.len() / channels;
+    if frames == 0 {
+        return Err(Error::Audio(AudioError::EmptyInput("empty input".into())));
+    }
+    let chunk = config.chunk_frames(audio.sample_rate).min(frames).max(1);
+    let overlap = config.overlap_frames(audio.sample_rate).min(chunk / 2);
+    let step = chunk - overlap;
+
+    // Global level processing, in the same order the crate uses for one call.
+    let mut leveled = audio.clone();
+    if config.amplification > 0.0 {
+        candle_roformer::dsp::amplify_quiet(&mut leveled.planar, config.amplification);
+    }
+    if config.normalization > 0.0 {
+        candle_roformer::dsp::normalize_peak(&mut leveled.planar, config.normalization);
+    }
+
+    let mut starts = Vec::new();
+    let mut start = 0usize;
+    while start < frames {
+        // A final chunk whose whole core is already covered by its predecessor
+        // would add a second weight ramp and break the sum-to-one property.
+        if start > 0 && start + overlap >= frames {
+            break;
+        }
+        starts.push(start);
+        start += step;
+    }
+    let total = starts.len();
+    log::info!(
+        "chunked separation: {} chunk(s) of {:.2}s with a {:.2}s crossfade",
+        total,
+        chunk as f64 / audio.sample_rate as f64,
+        overlap as f64 / audio.sample_rate as f64
+    );
+
+    let mut names: Vec<String> = Vec::new();
+    let mut accumulators: Vec<Vec<f32>> = Vec::new();
+    let mut weights = vec![0f32; frames];
+    let started = Instant::now();
+
+    for (index, &start) in starts.iter().enumerate() {
+        let core_end = (start + chunk).min(frames);
+        let context_start = start.saturating_sub(overlap);
+        let context_end = (start + chunk + overlap).min(frames);
+        let slice = slice_planar(&leveled, context_start, context_end);
+        let produced = separator.separate(&slice)?;
+        if produced.stems.is_empty() {
+            return Err(Error::Audio(AudioError::UnsupportedFormat(
+                "separator returned no named stems".into(),
+            )));
+        }
+        if index == 0 {
+            names = produced
+                .stems
+                .iter()
+                .map(|(name, _)| name.clone())
+                .collect();
+            accumulators = vec![vec![0f32; channels * frames]; names.len()];
+        }
+        if produced.stems.len() != names.len() {
+            return Err(Error::Audio(AudioError::UnsupportedFormat(
+                "separator returned a different stem set for a later chunk".into(),
+            )));
+        }
+        for (stem_index, (_, buffer)) in produced.stems.iter().enumerate() {
+            let slice_frames = buffer.planar.len() / channels;
+            let output = &mut accumulators[stem_index];
+            for frame in start..core_end {
+                let local = frame - context_start;
+                if local >= slice_frames {
+                    continue;
+                }
+                let weight = chunk_weight(frame, start, core_end, overlap, frames);
+                for channel in 0..channels {
+                    output[channel * frames + frame] +=
+                        weight * buffer.planar[channel * slice_frames + local];
+                }
+            }
+        }
+        for frame in start..core_end {
+            weights[frame] += chunk_weight(frame, start, core_end, overlap, frames);
+        }
+        progress(ChunkProgress {
+            index: index + 1,
+            total,
+            elapsed_seconds: started.elapsed().as_secs_f64(),
+        });
+    }
+
+    let mut named = Vec::with_capacity(names.len());
+    for (name, mut planar) in names.into_iter().zip(accumulators) {
+        for frame in 0..frames {
+            let weight = weights[frame];
+            if weight > 0.0 && (weight - 1.0).abs() > f32::EPSILON {
+                for channel in 0..channels {
+                    planar[channel * frames + frame] /= weight;
+                }
+            }
+        }
+        let mut buffer = AudioBuffer {
+            sample_rate: audio.sample_rate,
+            channels: audio.channels,
+            planar,
+        };
+        if config.normalization > 0.0 {
+            candle_roformer::dsp::normalize_peak(&mut buffer.planar, config.normalization);
+        }
+        named.push((name, buffer));
+    }
+    Ok(named)
+}
+
+/// Linear crossfade weight of one chunk at a frame: fade-in over its shared
+/// head, fade-out over its shared tail. Adjacent chunks' weights add up to
+/// exactly one inside their shared window.
+fn chunk_weight(frame: usize, start: usize, core_end: usize, overlap: usize, total: usize) -> f32 {
+    if overlap == 0 {
+        return 1.0;
+    }
+    let mut weight = 1.0f32;
+    if start > 0 {
+        weight *= ((frame - start) as f32 / overlap as f32).min(1.0);
+    }
+    if core_end < total {
+        weight *= ((core_end - frame) as f32 / overlap as f32).min(1.0);
+    }
+    weight
+}
+
+/// Copy `[start, end)` of a channel-major buffer into a new buffer.
+fn slice_planar(audio: &AudioBuffer, start: usize, end: usize) -> AudioBuffer {
+    let channels = audio.channels.max(1) as usize;
+    let frames = audio.planar.len() / channels;
+    let end = end.min(frames);
+    let take = end.saturating_sub(start);
+    let mut planar = Vec::with_capacity(channels * take);
+    for channel in 0..channels {
+        planar.extend_from_slice(&audio.planar[channel * frames + start..channel * frames + end]);
+    }
+    AudioBuffer {
+        sample_rate: audio.sample_rate,
+        channels: audio.channels,
+        planar,
+    }
+}
+
+fn named_stem<'a>(stems: &'a [(String, AudioBuffer)], name: &str) -> Option<&'a AudioBuffer> {
+    stems
+        .iter()
+        .find(|(stem, _)| stem.eq_ignore_ascii_case(name))
+        .map(|(_, buffer)| buffer)
+}
+
 /// Separate and write all requested named stems. The complete set of output
 /// paths is preflighted before creating the output directory or writing files.
 pub fn run_file(separator: &Separator, request: &FileRequest) -> Result<FileResult, Error> {
+    run_file_with_chunks(separator, request, None, &mut |_| {})
+}
+
+/// Same as [`run_file`], optionally processing the input in overlapping chunks
+/// and reporting each finished chunk through `progress`.
+pub fn run_file_with_chunks(
+    separator: &Separator,
+    request: &FileRequest,
+    chunks: Option<&ChunkConfig>,
+    progress: &mut dyn FnMut(ChunkProgress),
+) -> Result<FileResult, Error> {
     validate_output_options(request.format, request.bitrate, request.sample_rate)
         .map_err(|message| Error::Audio(AudioError::UnsupportedFormat(message)))?;
     let decode_started = Instant::now();
@@ -728,7 +982,12 @@ pub fn run_file(separator: &Separator, request: &FileRequest) -> Result<FileResu
     );
 
     let separate_started = Instant::now();
-    let stems = separator.separate(&input)?;
+    let stems = match chunks {
+        // Always go through the chunked path when it is enabled: it also owns
+        // the level processing, which is switched off inside the model then.
+        Some(config) => separate_chunked(separator, &input, config, progress)?,
+        None => separator.separate(&input)?.stems,
+    };
     log::debug!(
         "stage=separate input={} stem_count={} elapsed_ms={}",
         request.input.display(),
@@ -741,12 +1000,11 @@ pub fn run_file(separator: &Separator, request: &FileRequest) -> Result<FileResu
         )));
     }
 
-    let all_names: Vec<String> = stems.stems.iter().map(|(name, _)| name.clone()).collect();
+    let all_names: Vec<String> = stems.iter().map(|(name, _)| name.clone()).collect();
     let custom_names = validate_custom_names(&request.custom_output_names, &all_names)
         .map_err(|message| Error::Audio(AudioError::UnsupportedFormat(message)))?;
     let selected: Vec<(&str, &AudioBuffer)> = if let Some(selection) = &request.single_stem {
         let (name, buffer) = stems
-            .stems
             .iter()
             .find(|(name, _)| name.eq_ignore_ascii_case(selection))
             .ok_or_else(|| {
@@ -759,7 +1017,6 @@ pub fn run_file(separator: &Separator, request: &FileRequest) -> Result<FileResu
         vec![(name.as_str(), buffer)]
     } else {
         stems
-            .stems
             .iter()
             .map(|(name, buffer)| (name.as_str(), buffer))
             .collect()
@@ -813,8 +1070,7 @@ pub fn run_file(separator: &Separator, request: &FileRequest) -> Result<FileResu
     let mut transcript = None;
     let mut sidecars = None;
     if let Some((assets, options)) = &request.whisper {
-        let vocal = stems
-            .get("vocals")
+        let vocal = named_stem(&stems, "vocals")
             .or_else(|| selected.first().map(|(_, buffer)| *buffer))
             .ok_or_else(|| {
                 Error::Audio(AudioError::UnsupportedFormat(
@@ -1344,5 +1600,60 @@ mod output_tests {
         assert!(validate_output_options(OutputFormat::Wav, Some(192), None).is_err());
         assert!(validate_output_options(OutputFormat::Flac, None, Some(0)).is_err());
         assert!(validate_output_options(OutputFormat::Wav, None, Some(384_001)).is_err());
+    }
+
+    #[test]
+    fn chunk_crossfade_weights_sum_to_one_at_every_frame() {
+        for (total, chunk, overlap) in [
+            (10_000usize, 3_000usize, 750usize),
+            (9_000, 3_000, 1_000),
+            (4_400, 1_000, 500),
+            (1_000, 1_000, 100),
+        ] {
+            let step = chunk - overlap;
+            let mut weights = vec![0f32; total];
+            let mut starts = Vec::new();
+            let mut start = 0usize;
+            while start < total {
+                if start > 0 && start + overlap >= total {
+                    break;
+                }
+                starts.push(start);
+                start += step;
+            }
+            for &start in &starts {
+                let core_end = (start + chunk).min(total);
+                for frame in start..core_end {
+                    weights[frame] += chunk_weight(frame, start, core_end, overlap, total);
+                }
+            }
+            for (frame, weight) in weights.iter().enumerate() {
+                assert!(
+                    (weight - 1.0).abs() <= 1e-6,
+                    "total={total} chunk={chunk} overlap={overlap}: frame {frame} weight {weight}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn chunk_options_reject_unsafe_geometry() {
+        assert!(ChunkConfig::new(30.0, None, 0.9, 0.0).validate().is_ok());
+        assert_eq!(default_chunk_overlap(30.0), 3.0);
+        assert_eq!(default_chunk_overlap(1.0), 0.25);
+        assert_eq!(default_chunk_overlap(600.0), 5.0);
+        assert!(ChunkConfig::new(0.5, None, 0.0, 0.0).validate().is_err());
+        assert!(ChunkConfig::new(f64::NAN, None, 0.0, 0.0)
+            .validate()
+            .is_err());
+        assert!(ChunkConfig::new(10.0, Some(0.0), 0.0, 0.0)
+            .validate()
+            .is_err());
+        assert!(ChunkConfig::new(10.0, Some(6.0), 0.0, 0.0)
+            .validate()
+            .is_err());
+        assert!(ChunkConfig::new(10.0, Some(5.0), 0.0, 0.0)
+            .validate()
+            .is_ok());
     }
 }

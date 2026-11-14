@@ -66,6 +66,8 @@ Options:
 | `--custom_output_names '<json>'` | Partial JSON mapping from stem name to safe output basename; transcription sidecars use the vocal basename |
 | `--device cpu\|cuda\|metal` | An unavailable device is an error, never a silent CPU fallback |
 | `--start`, `--duration` | Process a window of the input, in seconds |
+| `--chunk_seconds <s>` | Separate in overlapping chunks of this length and report progress per chunk |
+| `--chunk_overlap <s>` | Crossfade width between chunks (default: 10% of the chunk, clamped to 0.25–5 s) |
 | `--overwrite` | Replace existing outputs |
 | `--normalization <peak>` | Peak-normalize input and output (default: `0.9`; `0` disables) |
 | `--amplification <peak>` | Raise non-silent input below this peak before separation (default: `0.0`, off) |
@@ -101,6 +103,37 @@ karaoke-cli song.wav --model_filename model.safetensors \
 Mappings may be partial. Unknown stem names, absolute paths, path separators,
 and `..` traversal are rejected. When transcribing, `.txt` and `.json`
 sidecars use the selected vocal stem's custom basename.
+
+## Long runs: chunking and progress
+
+Separation on CPU takes minutes to hours per track, and a single call prints
+nothing until it finishes. `--chunk_seconds` splits the input into overlapping
+windows, separates them one by one and reports progress on stderr:
+
+```sh
+karaoke-cli song.mp3 --model_filename model.safetensors --chunk_seconds 60
+#   chunk 1/9 done (11%, 421s elapsed)
+#   chunk 2/9 done (22%, 907s elapsed)
+```
+
+The windows are stitched with a linear crossfade of `--chunk_overlap` seconds
+(default 10% of the window, clamped to 0.25–5 s, never more than half a window).
+Each window is processed with one extra overlap of context on both sides, so the
+fade region sits inside the model's receptive field, and adjacent windows' fade
+weights add up to exactly one at every sample. Consequences worth knowing:
+
+- The output keeps the input's exact length, and a residual stem still satisfies
+  `vocals + instrumental = input` within f32 tolerance.
+- Level processing stays global: `--amplification`, the input normalisation and
+  the per-stem peak normalisation are applied once to the whole file, not per
+  window, so levels do not step at chunk boundaries.
+- Cost grows by the overlap fraction (about 11% at the default 10%).
+- `--transcribe` runs once, after stitching, on the vocal stem.
+- An input shorter than one chunk is separated in a single piece and keeps the
+  same global level rules; it reports `chunk 1/1`.
+
+Without `--chunk_seconds` the CLI makes a single separation call and prints no
+progress lines.
 
 ## Level processing and residual exactness
 
