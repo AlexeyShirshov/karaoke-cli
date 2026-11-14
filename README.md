@@ -10,6 +10,19 @@ No Python at runtime, no ffmpeg, no hidden model downloads.
 
 ## Install
 
+Prebuilt binaries are attached to every
+[GitHub release](https://github.com/AlexeyShirshov/karaoke-cli/releases):
+
+| Platform | Asset |
+|---|---|
+| Windows x86_64 | `karaoke-cli-v1.0.0-windows-x86_64.zip` (`karaoke-cli.exe`) |
+| Linux x86_64 | `karaoke-cli-v1.0.0-linux-x86_64.tar.gz` |
+
+Both are CPU builds with the MSVC runtime linked statically: unpack and run,
+no toolchain, no extra DLLs. GPU builds must be compiled from source (below).
+
+From source:
+
 ```sh
 cargo build --release
 ```
@@ -17,9 +30,12 @@ cargo build --release
 CUDA: `cargo build --release --features cuda` (NVIDIA + CUDA toolkit).
 Metal: `cargo build --release --features metal` (macOS).
 
-The binary is `target/release/karaoke-cli`. The crate is consumed from
-crates.io, so a checkout needs network access for the first build; bump the
-version in `Cargo.toml` after a release of `candle-roformer`.
+The binary is `target/release/karaoke-cli` (`.exe` on Windows). The crate is
+consumed from crates.io, so a checkout needs network access for the first
+build; bump the version in `Cargo.toml` after a release of `candle-roformer`.
+
+On Windows paths use the native form, and quote paths that contain spaces or
+an apostrophe: `karaoke-cli "C:\Users\me\Music\Ya Zdes'.mp3" --model_filename ...`
 
 ## Separate
 

@@ -810,8 +810,16 @@ mod cli_tests {
         )));
         assert!(report.contains("available parallelism:"));
         assert!(report.contains("CPU device: available"));
-        assert!(report.contains("resolved model checkpoint: /tmp/model-root/separator.safetensors"));
-        assert!(report.contains("resolved model config: /tmp/model-root/separator.yaml"));
+        let expected_checkpoint = std::path::Path::new("/tmp/model-root")
+            .join("separator.safetensors")
+            .display()
+            .to_string();
+        let expected_config = std::path::Path::new("/tmp/model-root")
+            .join("separator.yaml")
+            .display()
+            .to_string();
+        assert!(report.contains(&format!("resolved model checkpoint: {expected_checkpoint}")));
+        assert!(report.contains(&format!("resolved model config: {expected_config}")));
         assert!(!report.contains("API_KEY"));
     }
 }
