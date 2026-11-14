@@ -12,6 +12,10 @@ jobs:
   build:
     name: build (${{ matrix.asset }})
     runs-on: ${{ matrix.os }}
+    env:
+      # libsamplerate-sys builds its bundled CMake project with a policy floor
+      # older than CMake 4 accepts.
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
     strategy:
       fail-fast: false
       matrix:
