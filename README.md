@@ -127,7 +127,9 @@ weights add up to exactly one at every sample. Consequences worth knowing:
 - Level processing stays global: `--amplification`, the input normalisation and
   the per-stem peak normalisation are applied once to the whole file, not per
   window, so levels do not step at chunk boundaries.
-- Cost grows by the overlap fraction (about 11% at the default 10%).
+- Extra compute is `(chunk + 2 × overlap) / (chunk − overlap)`, because each
+  window carries one overlap of context on both sides: about 33% at the default
+  10% fade, and about 13% for two-minute windows (the fade is capped at 5 s).
 - `--transcribe` runs once, after stitching, on the vocal stem.
 - An input shorter than one chunk is separated in a single piece and keeps the
   same global level rules; it reports `chunk 1/1`.
