@@ -1179,7 +1179,7 @@ dependencies = [
 
 [[package]]
 name = "karaoke-cli"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "candle-core",
  "candle-nn",
