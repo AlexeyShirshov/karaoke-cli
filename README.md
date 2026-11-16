@@ -271,10 +271,21 @@ redistributes them.
 
 | Model | Config | Weights |
 |---|---|---|
+| Unwa BS-RoFormer HyperACE v2 Inst | `configs/bs_roformer_hyperace_v2_inst.yaml` in the crate (1.0.2+) | convert `v2_inst/bs_roformer_inst_hyperacev2.ckpt` with `tools/convert_hyperace.py` from the crate |
 | BS-RoFormer Viperx 1297 | `configs/bs_roformer_viperx_1297.yaml` in the crate | convert the source `.ckpt` with `candle-roformer`'s `tools/convert_bs_roformer.py`; the catalog checksum describes the source checkpoint |
 | GaboxR67 `voc_fv7` | `configs/voc_fv7.yaml` in the crate | convert `voc_fv7.ckpt` with `candle-roformer`'s `tools/convert_voc_fv7.py` |
 | KimberleyJSN / Kijai mirror | `configs/kijai_melband_384.yaml` in the crate | `MelBandRoformer_fp32.safetensors` as published |
 | Whisper (tiny..large, `*.en` or multilingual) | `config.json` from the checkpoint | `model.safetensors` + `tokenizer.json` |
+
+HyperACE v2 Inst requires the adapted
+[`bs_roformer_hyperace_v2_inst.yaml`](https://github.com/AlexeyShirshov/candle-roformer/blob/main/configs/bs_roformer_hyperace_v2_inst.yaml)
+profile, not the author's unmodified `config.yaml`: it explicitly selects
+`model.family: bs_roformer_hyperace_v2` and retains
+`training.target_instrument: instrument`. The direct estimate is saved as
+`Instrumental`; the residual is saved as `Vocals` and used for transcription.
+Do not remove the `training` section or rename a checkpoint instead of converting
+it. Use `--single_stem instrumental` without `--transcribe` if only music is needed.
+No model weights are downloaded by the CLI.
 
 ### Whisper assets
 
@@ -299,7 +310,7 @@ offline.
 
 The model profile YAMLs named in the table ship inside the `candle-roformer`
 crate package under `configs/`, e.g.
-`~/.cargo/registry/src/*/candle-roformer-1.0.1/configs/kijai_melband_384.yaml`,
+`~/.cargo/registry/src/*/candle-roformer-1.0.2/configs/kijai_melband_384.yaml`,
 or from the crate's repository. Place the profile next to the checkpoint as
 `<model-stem>.yaml` to skip `--config`.
 
@@ -315,7 +326,7 @@ or from the crate's repository. Place the profile next to the checkpoint as
   segment-level, not word alignment. There is no WER or lyric-accuracy claim.
 - Catalog rows are metadata, not a loadability guarantee; checkpoint support
   follows the model families and config compatibility provided by
-  `candle-roformer` 1.0.1.
+  `candle-roformer` 1.0.2.
 - Weights licensing is not resolved by this repository.
 
 ## Tests

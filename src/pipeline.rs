@@ -1162,7 +1162,7 @@ fn file_output_base(
         })
 }
 
-/// Mirror candle-roformer 1.0.1's profile-based stem naming before inference:
+/// Mirror candle-roformer 1.0.2's profile-based stem naming before inference:
 /// single-target profiles return vocals plus a residual; four-stem profiles
 /// return drums/bass/other/vocals; other profiles use stem_<index>.
 fn preflight_file_request(separator: &Separator, request: &FileRequest) -> Result<(), Error> {

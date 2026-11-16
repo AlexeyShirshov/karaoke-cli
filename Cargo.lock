@@ -264,9 +264,9 @@ dependencies = [
 
 [[package]]
 name = "candle-roformer"
-version = "1.0.1"
+version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee9b137e9a605cb9fc4fab6fad58f61d50d8d3c8d85e7ef74a3c3cebd4b3951e"
+checksum = "2dc8bd87f3cbfb4c0a5babd8ff5cce4e20529c89a486354199687076eb4480ba"
 dependencies = [
  "candle-core",
  "candle-nn",

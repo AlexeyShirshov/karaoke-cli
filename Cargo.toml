@@ -25,7 +25,7 @@ metal = ["candle-roformer/metal"]
 [dependencies]
 # The crate is the product; this repository only adds the file-level front end.
 # Bump the version after every release that must reach the CLI.
-candle-roformer = "1.0.1"
+candle-roformer = "1.0.2"
 flacenc = { version = "0.5.1", default-features = false }
 log = "0.4"
 mp3lame-encoder = "0.3.0"

@@ -1,5 +1,14 @@
 [
   {
+    "name": "Unwa BS-RoFormer HyperACE v2 Inst",
+    "filename": "bs_roformer_inst_hyperacev2.safetensors",
+    "architecture": "BSRoformerHyperAceV2",
+    "stems": ["vocals", "instrumental"],
+    "SDR": null,
+    "checksum": null,
+    "weights": "Convert v2_inst/bs_roformer_inst_hyperacev2.ckpt from https://huggingface.co/pcunwa/BS-Roformer-HyperACE with candle-roformer's tools/convert_hyperace.py. Use configs/bs_roformer_hyperace_v2_inst.yaml from candle-roformer 1.0.2, including its explicit family and instrumental target."
+  },
+  {
     "name": "BS-RoFormer Viperx 1297 (vocals)",
     "filename": "model_bs_roformer_ep_317_sdr_12.9755.safetensors",
     "architecture": "BSRoformer",

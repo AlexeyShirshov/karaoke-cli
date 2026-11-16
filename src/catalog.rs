@@ -122,8 +122,11 @@ mod tests {
     #[test]
     fn builtin_catalog_is_local_filterable_and_stable_json() {
         let models = builtin_models().unwrap();
-        assert_eq!(models.len(), 3);
+        assert_eq!(models.len(), 4);
         assert_eq!(list_models(&models, Some("viperx"), None).len(), 1);
+        let hyperace = list_models(&models, Some("hyperace"), None);
+        assert_eq!(hyperace.len(), 1);
+        assert_eq!(hyperace[0].architecture, "BSRoformerHyperAceV2");
         let json = render_json(&models).unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value[0]["name"], models[0].name);

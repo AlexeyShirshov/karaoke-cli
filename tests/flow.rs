@@ -1046,6 +1046,74 @@ fn early_preflight_respects_overwrite_and_only_checks_requested_outputs() {
     assert_eq!(fs::read(sidecar).unwrap(), b"preserve transcript");
 }
 
+#[test]
+fn instrumental_target_keeps_correct_output_labels_with_and_without_chunks() {
+    let dir = tmpdir("instrumental_target_labels");
+    let assets = tiny_separator_assets(&dir);
+    let overrides = InferenceOverrides {
+        normalization: 0.0,
+        amplification: 0.0,
+        invert_spect: false,
+    };
+    let vocal_separator =
+        load_separator_with_options(&assets, DeviceChoice::Cpu, overrides).unwrap();
+    let profile = fs::read_to_string(&assets.config).unwrap();
+    fs::write(
+        &assets.config,
+        format!("{profile}\ntraining:\n  target_instrument: instrument\n"),
+    )
+    .unwrap();
+    // The CLI's temporary-profile overrides must preserve target_instrument.
+    let instrumental_separator =
+        load_separator_with_options(&assets, DeviceChoice::Cpu, overrides).unwrap();
+    let input = dir.join("song.wav");
+    write_wav_f32(&input, &stereo_source(44_100, 2000)).unwrap();
+    let chunk_config = ChunkConfig::new(1.0, Some(0.25), 0.0, 0.0);
+    for (index, chunks) in [None, Some(&chunk_config)].into_iter().enumerate() {
+        let vocal_request =
+            chunked_request(input.clone(), dir.join(format!("vocals-target-{index}")));
+        let instrumental_request = chunked_request(
+            input.clone(),
+            dir.join(format!("instrumental-target-{index}")),
+        );
+        let reference =
+            run_file_with_chunks(&vocal_separator, &vocal_request, chunks, &mut |_| {}).unwrap();
+        let result = run_file_with_chunks(
+            &instrumental_separator,
+            &instrumental_request,
+            chunks,
+            &mut |_| {},
+        )
+        .unwrap();
+        for (output_name, reference_name) in
+            [("instrumental", "vocals"), ("vocals", "instrumental")]
+        {
+            let actual_path = &result
+                .stems
+                .iter()
+                .find(|stem| stem.name == output_name)
+                .unwrap()
+                .path;
+            let reference_path = &reference
+                .stems
+                .iter()
+                .find(|stem| stem.name == reference_name)
+                .unwrap()
+                .path;
+            let actual = read_audio(actual_path).unwrap();
+            let expected = read_audio(reference_path).unwrap();
+            assert_eq!(actual.planar.len(), expected.planar.len());
+            let max_error = actual
+                .planar
+                .iter()
+                .zip(&expected.planar)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0f32, f32::max);
+            assert!(max_error < 1e-5, "{output_name}: {max_error}");
+        }
+    }
+}
+
 fn stereo_source(sample_rate: u32, frames: usize) -> AudioBuffer {
     let mut planar = Vec::with_capacity(frames * 2);
     planar.extend((0..frames).map(|i| (i as f32 * 0.031).sin() * 0.4));
