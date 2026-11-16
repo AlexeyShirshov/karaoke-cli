@@ -15,11 +15,28 @@ Prebuilt binaries are attached to every
 
 | Platform | Asset |
 |---|---|
-| Windows x86_64 | `karaoke-cli-v1.0.0-windows-x86_64.zip` (`karaoke-cli.exe`) |
-| Linux x86_64 | `karaoke-cli-v1.0.0-linux-x86_64.tar.gz` |
+| Windows x86_64 | `karaoke-cli-v<version>-windows-x86_64.zip` (`karaoke-cli.exe`) |
+| Windows x86_64 CUDA | `karaoke-cli-v<version>-windows-x86_64-cuda12.zip` (`karaoke-cli.exe` + CUDA DLLs; when published) |
+| Linux x86_64 | `karaoke-cli-v<version>-linux-x86_64.tar.gz` |
 
-Both are CPU builds with the MSVC runtime linked statically: unpack and run,
-no toolchain, no extra DLLs. GPU builds must be compiled from source (below).
+The ordinary Windows and Linux archives are CPU builds. The Windows CPU build
+has the MSVC runtime linked statically: unpack and run, no toolchain or extra DLLs.
+
+The separate Windows `cuda12` archive is built with CUDA 12.8 for NVIDIA Turing
+or newer GPUs (compute capability 7.5+, e.g. GTX 16 / RTX 20 and later).
+It requires an NVIDIA Windows driver supporting CUDA 12.8 (570.65 or newer).
+Extract **all** files, keeping the bundled CUDA DLLs beside `karaoke-cli.exe`;
+installing CUDA Toolkit is not required. Select the GPU explicitly with
+`--device cuda` (the default remains CPU). `--env_info` reports compiled features
+and device availability. CUDA archives are build/package checked only: hosted
+release runners have no GPU, so they do not verify GPU inference.
+Linux CUDA and macOS Metal builds must still be compiled from source.
+
+Maintainers can add the CUDA archive to an existing release from Actions →
+Release → Run workflow: select the branch containing the updated workflow and
+set `release_tag`, e.g. `v1.0.1`. Sources are checked out at that tag; only the
+CUDA archive and its SHA-256 file are uploaded, without replacing existing assets.
+Leave `release_tag` empty for a build-only run. Tag pushes publish all variants.
 
 From source:
 

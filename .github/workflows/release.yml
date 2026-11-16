@@ -4,6 +4,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing release to receive the Windows CUDA archive (e.g. v1.0.1); empty = build only"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -24,29 +29,57 @@ jobs:
             target: x86_64-pc-windows-msvc
             asset: windows-x86_64
             binary: karaoke-cli.exe
+            features: ""
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+            asset: windows-x86_64-cuda12
+            binary: karaoke-cli.exe
+            features: cuda
           # 22.04 keeps the glibc floor low enough for older LTS hosts;
           # ubuntu-latest already builds against a much newer glibc.
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             asset: linux-x86_64
             binary: karaoke-cli
+            features: ""
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.asset }}
+      - name: Set up MSVC for nvcc
+        if: matrix.features == 'cuda'
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Install CUDA Toolkit
+        if: matrix.features == 'cuda'
+        uses: Jimver/cuda-toolkit@v0.2.29
+        with:
+          cuda: "12.8.1"
+          method: network
+      - name: Configure portable CUDA kernels
+        if: matrix.features == 'cuda'
+        shell: pwsh
+        run: |
+          # Compile PTX for Turing and later without probing a runner GPU.
+          "CUDA_COMPUTE_CAP=75" >> $env:GITHUB_ENV
       - name: Use a static CRT on Windows
-        if: matrix.os == 'windows-latest'
+        if: runner.os == 'Windows'
         shell: pwsh
         run: echo "RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV
       - name: Test
+        if: matrix.features != 'cuda'
         run: cargo test --locked
       - name: Build
-        run: cargo build --release --locked --target ${{ matrix.target }}
+        run: cargo build --release --locked --target ${{ matrix.target }} --features "${{ matrix.features }}"
       - name: Smoke test the release binary
+        # cudarc links nvcuda.dll at process startup on Windows. Hosted runners
+        # have no NVIDIA driver, so even --version cannot run for this build.
+        if: matrix.features != 'cuda'
         shell: bash
         run: |
           set -euo pipefail
@@ -55,15 +88,40 @@ jobs:
           "$built" --list_models --list_format json > /dev/null
           "$built" --env_info
       - name: Package (Windows)
-        if: matrix.os == 'windows-latest'
+        if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+          CUDA_BUILD: ${{ matrix.features == 'cuda' }}
         run: |
-          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          $version = $env:RELEASE_TAG -replace '^v', ''
           $name = "karaoke-cli-v$version-${{ matrix.asset }}"
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary }}" "dist/${{ matrix.binary }}"
-          Compress-Archive -Path "dist/${{ matrix.binary }}" -DestinationPath "dist/$name.zip"
-          Remove-Item "dist/${{ matrix.binary }}"
+          $stage = Join-Path $env:RUNNER_TEMP $name
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary }}" $stage
+          if ($env:CUDA_BUILD -eq 'true') {
+            # Only redistributable user-mode runtime libraries, never nvcuda.dll
+            # (the NVIDIA driver must be installed on the user's machine).
+            $patterns = 'cublas64_*.dll', 'cublasLt64_*.dll', 'curand64_*.dll',
+                        'cudart64_*.dll', 'nvrtc64_*.dll', 'nvrtc-builtins64_*.dll'
+            foreach ($pattern in $patterns) {
+              $dlls = @(Get-ChildItem (Join-Path $env:CUDA_PATH 'bin') -Filter $pattern)
+              if ($dlls.Count -eq 0) { throw "Missing CUDA runtime: $pattern" }
+              $dlls | Copy-Item -Destination $stage
+            }
+            Copy-Item (Join-Path $env:CUDA_PATH 'EULA.txt') (Join-Path $stage 'CUDA-EULA.txt')
+            @'
+          Windows x86_64 CUDA 12.8 build (PTX compute capability 7.5).
+          Requires NVIDIA Turing or newer (e.g. GTX 16 / RTX 20 or later)
+          and an NVIDIA driver supporting CUDA 12.8 (Windows 570.65 or newer).
+          Extract ALL files into one folder; run karaoke-cli.exe --device cuda.
+          CUDA Toolkit is not required on the user's machine.
+          CUDA DLLs are NVIDIA redistributables; see CUDA-EULA.txt.
+          Built on a GPU-less runner: GPU inference has NOT been tested.
+          '@ | Set-Content (Join-Path $stage 'README-CUDA.txt')
+          }
+          Compress-Archive -Path "$stage/*" -DestinationPath "dist/$name.zip"
           $hash = (Get-FileHash "dist/$name.zip" -Algorithm SHA256).Hash.ToLower()
           [System.IO.File]::WriteAllText(
             (Join-Path $PWD.Path "dist/$name.zip.sha256"),
@@ -71,11 +129,13 @@ jobs:
           )
           Get-ChildItem dist
       - name: Package (Linux)
-        if: matrix.os != 'windows-latest'
+        if: runner.os != 'Windows'
         shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
           name="karaoke-cli-v${version}-${{ matrix.asset }}"
           mkdir -p dist
           cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" "dist/${{ matrix.binary }}"
@@ -92,7 +152,7 @@ jobs:
   publish:
     name: publish release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -101,6 +161,7 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Create GitHub release
+        if: github.event_name != 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -112,3 +173,16 @@ jobs:
             --title "karaoke-cli ${version}" \
             --notes-file "docs/release-notes/${GITHUB_REF_NAME}.md" \
             --verify-tag
+      - name: Add CUDA archive to an existing release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Expected a release tag such as v1.0.1"; exit 1; }
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"
+          # Do not overwrite existing CPU or CUDA assets.
+          gh release upload "$RELEASE_TAG" dist/*-windows-x86_64-cuda12.zip* \
+            --repo "$GITHUB_REPOSITORY"
