@@ -194,9 +194,23 @@ karaoke-cli "song.m4a" \
 never the mix.
 
 Whisper uses the same `--device` as separation, with no silent CPU fallback.
-At the default log level, transcription reports its start (including the device)
-and completion with elapsed time. There is no per-window transcription percentage
-yet: the upstream API does not expose a progress callback.
+At the default log level, transcription reports its start (including the device),
+processed audio duration and percentage, and completion with elapsed time:
+
+```text
+transcription started (device=Cuda)
+transcription 0% (0.00/240.00s audio, 2.1s elapsed)
+transcription 12% (30.00/240.00s audio, 5.3s elapsed)
+...
+transcription 100% (240.00/240.00s audio, 28.4s elapsed)
+transcription finished (28.4s elapsed)
+```
+
+Progress comes from `candle-roformer` 1.0.1 after each decoded Whisper window
+(up to 30 seconds of audio), not every 30 seconds of wall time. Model loading,
+audio preparation, language detection and retries can take time without advancing
+the percentage. Short recordings normally report only 0% and 100%.
+`--log_level warn|error|off` suppresses these info-level messages.
 
 `--language auto` (the default) lets Whisper detect the language; on singing the
 detection is unreliable, so forcing a code is usually better.
@@ -284,7 +298,7 @@ offline.
 
 The model profile YAMLs named in the table ship inside the `candle-roformer`
 crate package under `configs/`, e.g.
-`~/.cargo/registry/src/*/candle-roformer-1.0.0/configs/kijai_melband_384.yaml`,
+`~/.cargo/registry/src/*/candle-roformer-1.0.1/configs/kijai_melband_384.yaml`,
 or from the crate's repository. Place the profile next to the checkpoint as
 `<model-stem>.yaml` to skip `--config`.
 
@@ -300,7 +314,7 @@ or from the crate's repository. Place the profile next to the checkpoint as
   segment-level, not word alignment. There is no WER or lyric-accuracy claim.
 - Catalog rows are metadata, not a loadability guarantee; checkpoint support
   follows the model families and config compatibility provided by
-  `candle-roformer` 1.0.
+  `candle-roformer` 1.0.1.
 - Weights licensing is not resolved by this repository.
 
 ## Tests

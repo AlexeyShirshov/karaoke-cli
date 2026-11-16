@@ -216,7 +216,16 @@ fn cli_transcription_reports_device_and_completion() {
     let finished = stderr
         .find("transcription finished (")
         .expect("transcription must report completion");
-    assert!(started < finished, "{stderr}");
+    let initial = stderr
+        .find("transcription 0% (")
+        .expect("transcription must report initial progress");
+    let complete = stderr
+        .find("transcription 100% (")
+        .expect("transcription must report completed progress");
+    assert!(
+        started < initial && initial < complete && complete < finished,
+        "{stderr}"
+    );
     assert!(dir.join("out/song_(Vocals)_tiny_sep.txt").is_file());
     assert!(dir.join("out/song_(Vocals)_tiny_sep.json").is_file());
 }

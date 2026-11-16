@@ -1109,7 +1109,16 @@ pub fn run_file_with_chunks(
         let device = separator.device_choice();
         log::info!("transcription started (device={device:?})");
         let mut transcriber = Transcriber::load(assets, device)?;
-        let transcript_value = transcriber.transcribe_with(vocal, options)?;
+        let transcript_value =
+            transcriber.transcribe_with_progress(vocal, options, |progress| {
+                let percent = (progress.fraction() * 100.0).floor() as u32;
+                log::info!(
+                    "transcription {percent}% ({:.2}/{:.2}s audio, {:.1}s elapsed)",
+                    progress.processed_seconds,
+                    progress.total_seconds,
+                    transcription_started.elapsed().as_secs_f64()
+                );
+            })?;
         log::info!(
             "transcription finished ({:.1}s elapsed)",
             transcription_started.elapsed().as_secs_f64()
