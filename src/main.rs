@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use candle_roformer::device::DeviceChoice;
 use candle_roformer::whisper::TranscribeOptions;
@@ -12,6 +12,7 @@ use karaoke_cli::pipeline::{
     expand_inputs, load_separator_with_options, process_batch, run_file_with_chunks, ChunkConfig,
     ChunkProgress, FileRequest, InferenceOverrides, OutputFormat,
 };
+use karaoke_cli::status::{format_duration, Activity};
 use log::{LevelFilter, Log, Metadata, Record};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -31,13 +32,9 @@ impl Log for StderrLogger {
         if !self.enabled(record.metadata()) {
             return;
         }
-        let elapsed = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default();
         eprintln!(
-            "{}.{:03} {} {}: {}",
-            elapsed.as_secs(),
-            elapsed.subsec_millis(),
+            "{} {} {}: {}",
+            chrono::Local::now().format("%H:%M:%S"),
             record.level(),
             record.target(),
             record.args()
@@ -587,6 +584,11 @@ fn run() -> Result<i32, String> {
     // With chunking the CLI applies amplification and normalization once over
     // the whole file; leaving them in the model would renormalise every chunk.
     let model_levels = chunk_config.is_none();
+    log::info!(
+        "loading separation model (device={device:?}): {}",
+        model_path.display()
+    );
+    let loading_activity = Activity::start("loading separation model");
     let separator = load_separator_with_options(
         &separator_assets,
         device,
@@ -605,6 +607,8 @@ fn run() -> Result<i32, String> {
         },
     )
     .map_err(|error| format!("model {}: {error}", model_path.display()))?;
+    drop(loading_activity);
+    log::info!("separation model loaded");
 
     let whisper = if args.transcribe {
         let dir = args.whisper_model_dir.as_deref();
@@ -658,8 +662,10 @@ fn run() -> Result<i32, String> {
                 chunk.index as f64 * 100.0 / chunk.total as f64
             };
             eprintln!(
-                "  chunk {}/{} done ({percent:.0}%, {:.0}s elapsed)",
-                chunk.index, chunk.total, chunk.elapsed_seconds
+                "  chunk {}/{} done ({percent:.0}%, {} elapsed)",
+                chunk.index,
+                chunk.total,
+                format_duration(Duration::from_secs_f64(chunk.elapsed_seconds))
             );
         };
         run_file_with_chunks(&separator, &request, chunk_config.as_ref(), &mut reporter)

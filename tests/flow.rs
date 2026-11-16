@@ -270,6 +270,39 @@ fn cli_saves_instrumental_and_lyrics_without_a_vocal_audio_file() {
             "{}",
             String::from_utf8_lossy(&result.stderr)
         );
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        let clock_line = stderr
+            .lines()
+            .find(|line| line.contains("loading separation model (device=Cpu)"))
+            .expect("model loading must be visible without debug logging");
+        let clock = &clock_line.as_bytes()[..8];
+        assert_eq!(clock[2], b':');
+        assert_eq!(clock[5], b':');
+        assert!(clock
+            .iter()
+            .enumerate()
+            .all(|(index, byte)| index == 2 || index == 5 || byte.is_ascii_digit()));
+        let mut previous = stderr.find("transcription finished (").unwrap();
+        for marker in [
+            "output saving started (3 file(s))",
+            "writing output 1/3 (wav):",
+            "output prepared 1/3:",
+            "writing output 2/3 (text):",
+            "output prepared 2/3:",
+            "writing output 3/3 (text):",
+            "output prepared 3/3:",
+            "installing 3 output file(s)",
+            "output saved 1/3:",
+            "output saved 2/3:",
+            "output saved 3/3:",
+            "output saving finished (3 file(s),",
+        ] {
+            let position = stderr
+                .find(marker)
+                .unwrap_or_else(|| panic!("missing console message {marker}: {stderr}"));
+            assert!(previous < position, "{marker}: {stderr}");
+            previous = position;
+        }
         let mut files: Vec<_> = fs::read_dir(output_dir)
             .unwrap()
             .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())

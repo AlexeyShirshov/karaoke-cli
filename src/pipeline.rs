@@ -6,11 +6,13 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
+use std::io::{BufWriter, Write};
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
+use crate::status::{format_duration, Activity};
 use candle_roformer::assets::{LocalSeparationAssets, LocalWhisperAssets};
 use candle_roformer::device::DeviceChoice;
 use candle_roformer::error::{AudioError, Error};
@@ -973,9 +975,12 @@ pub fn run_file_with_chunks(
         .map_err(|message| Error::Audio(AudioError::UnsupportedFormat(message)))?;
     preflight_file_request(separator, request)?;
     let decode_started = Instant::now();
+    log::info!("decoding input: {}", request.input.display());
+    let decode_activity = Activity::start("decoding input audio");
     let mut input = read_audio(&request.input)?;
     trim_window(&mut input, request.start_seconds, request.limit_seconds)?;
     let duration_seconds = input.duration_secs();
+    drop(decode_activity);
     log::debug!(
         "stage=decode input={} elapsed_ms={}",
         request.input.display(),
@@ -983,12 +988,19 @@ pub fn run_file_with_chunks(
     );
 
     let separate_started = Instant::now();
+    log::info!("separation started");
+    let separate_activity = Activity::start("separating audio");
     let stems = match chunks {
         // Always go through the chunked path when it is enabled: it also owns
         // the level processing, which is switched off inside the model then.
         Some(config) => separate_chunked(separator, &input, config, progress)?,
         None => separator.separate(&input)?.stems,
     };
+    drop(separate_activity);
+    log::info!(
+        "separation finished ({} elapsed)",
+        format_duration(separate_started.elapsed())
+    );
     log::debug!(
         "stage=separate input={} stem_count={} elapsed_ms={}",
         request.input.display(),
@@ -1067,6 +1079,7 @@ pub fn run_file_with_chunks(
             )));
         }
         let transcription_started = Instant::now();
+        let transcription_activity = Activity::start("loading Whisper / transcribing vocals");
         let device = separator.device_choice();
         log::info!("transcription started (device={device:?})");
         let mut transcriber = Transcriber::load(assets, device)?;
@@ -1074,16 +1087,22 @@ pub fn run_file_with_chunks(
             transcriber.transcribe_with_progress(vocal, options, |progress| {
                 let percent = (progress.fraction() * 100.0).floor() as u32;
                 log::info!(
-                    "transcription {percent}% ({:.2}/{:.2}s audio, {:.1}s elapsed)",
+                    "transcription {percent}% ({:.2}/{:.2}s audio, {} elapsed)",
                     progress.processed_seconds,
                     progress.total_seconds,
-                    transcription_started.elapsed().as_secs_f64()
+                    format_duration(transcription_started.elapsed())
                 );
             })?;
         log::info!(
-            "transcription finished ({:.1}s elapsed)",
-            transcription_started.elapsed().as_secs_f64()
+            "transcription finished ({} elapsed)",
+            format_duration(transcription_started.elapsed())
         );
+        drop(transcription_activity);
+        log::info!("releasing Whisper model");
+        {
+            let _activity = Activity::start("releasing Whisper model");
+            drop(transcriber);
+        }
         log::debug!(
             "stage=transcribe input={} elapsed_ms={}",
             request.input.display(),
@@ -1355,11 +1374,25 @@ fn write_staged_outputs(
     outputs: Vec<(PathBuf, StagedContent)>,
 ) -> Result<(), Error> {
     static NEXT_STAGE: AtomicU64 = AtomicU64::new(0);
+    let saving_started = Instant::now();
+    let total = outputs.len();
+    log::info!("output saving started ({total} file(s))");
     fs::create_dir_all(output_dir)
         .map_err(|error| Error::Audio(AudioError::Io(error.to_string())))?;
     let mut staged = Vec::with_capacity(outputs.len());
-    for (final_path, content) in outputs {
+    for (index, (final_path, content)) in outputs.into_iter().enumerate() {
+        let writing_started = Instant::now();
+        let kind = match &content {
+            StagedContent::Audio(_, format, _) => format.extension(),
+            StagedContent::Text(_) => "text",
+        };
+        log::info!(
+            "writing output {}/{total} ({kind}): {}",
+            index + 1,
+            final_path.display()
+        );
         let id = NEXT_STAGE.fetch_add(1, Ordering::Relaxed);
+        let _activity = Activity::start(format!("writing output: {}", final_path.display()));
         let stage_path = output_dir.join(format!(".karaoke-{}-{id}.tmp", std::process::id()));
         let result = match content {
             StagedContent::Audio(buffer, format, bitrate) => {
@@ -1369,15 +1402,28 @@ fn write_staged_outputs(
                 .map_err(|error| Error::Audio(AudioError::Io(error.to_string()))),
         };
         if let Err(error) = result {
+            log::error!(
+                "output write failed: {} ({} elapsed): {error}",
+                final_path.display(),
+                format_duration(writing_started.elapsed())
+            );
             let _ = fs::remove_file(&stage_path);
             for (_, path) in &staged {
                 let _ = fs::remove_file(path);
             }
             return Err(error);
         }
+        log::info!(
+            "output prepared {}/{total}: {} ({} elapsed)",
+            index + 1,
+            final_path.display(),
+            format_duration(writing_started.elapsed())
+        );
         staged.push((final_path, stage_path));
     }
-    for (final_path, stage_path) in &staged {
+    log::info!("installing {total} output file(s)");
+    for (index, (final_path, stage_path)) in staged.iter().enumerate() {
+        let _activity = Activity::start(format!("installing output: {}", final_path.display()));
         if let Err(error) = fs::rename(stage_path, final_path) {
             for (_, path) in &staged {
                 let _ = fs::remove_file(path);
@@ -1387,7 +1433,16 @@ fn write_staged_outputs(
                 final_path.display()
             ))));
         }
+        log::info!(
+            "output saved {}/{total}: {}",
+            index + 1,
+            final_path.display()
+        );
     }
+    log::info!(
+        "output saving finished ({total} file(s), {} elapsed)",
+        format_duration(saving_started.elapsed())
+    );
     Ok(())
 }
 
@@ -1399,10 +1454,61 @@ fn write_audio(
 ) -> Result<(), Error> {
     audio.validate()?;
     match format {
-        OutputFormat::Wav => write_wav_f32(path, audio),
+        OutputFormat::Wav => write_wav_buffered(path, audio),
         OutputFormat::Flac => write_flac(path, audio),
         OutputFormat::Mp3 => write_mp3(path, audio, bitrate.unwrap_or(192)),
     }
+}
+
+fn write_wav_buffered(path: &Path, audio: &AudioBuffer) -> Result<(), Error> {
+    let file =
+        fs::File::create(path).map_err(|error| Error::Audio(AudioError::Io(error.to_string())))?;
+    write_wav_to(file, audio)
+}
+
+fn write_wav_to(writer: impl Write, audio: &AudioBuffer) -> Result<(), Error> {
+    audio.validate()?;
+    let data_size = audio
+        .planar
+        .len()
+        .checked_mul(4)
+        .and_then(|size| u32::try_from(size).ok())
+        .filter(|size| *size <= u32::MAX - 36)
+        .ok_or_else(|| {
+            Error::Audio(AudioError::UnsupportedFormat(
+                "audio exceeds the RIFF WAV size limit".into(),
+            ))
+        })?;
+    let channels = audio.channels as u16;
+    let block_align = channels * 4;
+    let mut header = Vec::with_capacity(44);
+    header.extend_from_slice(b"RIFF");
+    header.extend_from_slice(&(36 + data_size).to_le_bytes());
+    header.extend_from_slice(b"WAVEfmt ");
+    header.extend_from_slice(&16u32.to_le_bytes());
+    header.extend_from_slice(&3u16.to_le_bytes());
+    header.extend_from_slice(&channels.to_le_bytes());
+    header.extend_from_slice(&audio.sample_rate.to_le_bytes());
+    header.extend_from_slice(&(audio.sample_rate * block_align as u32).to_le_bytes());
+    header.extend_from_slice(&block_align.to_le_bytes());
+    header.extend_from_slice(&32u16.to_le_bytes());
+    header.extend_from_slice(b"data");
+    header.extend_from_slice(&data_size.to_le_bytes());
+    // Bound memory use and batch the float32 samples into large disk writes.
+    let mut writer = BufWriter::with_capacity(256 * 1024, writer);
+    let result = (|| -> std::io::Result<()> {
+        writer.write_all(&header)?;
+        let channels = channels as usize;
+        let frames = audio.planar.len() / channels;
+        for frame in 0..frames {
+            for channel in 0..channels {
+                writer.write_all(&audio.planar[channel * frames + frame].to_le_bytes())?;
+            }
+        }
+        // A drop-only flush would silently discard disk errors.
+        writer.flush()
+    })();
+    result.map_err(|error| Error::Audio(AudioError::Io(error.to_string())))
 }
 
 fn write_flac(path: &Path, audio: &AudioBuffer) -> Result<(), Error> {
@@ -1550,6 +1656,74 @@ fn write_mp3(path: &Path, audio: &AudioBuffer, bitrate: u16) -> Result<(), Error
 #[cfg(test)]
 mod output_tests {
     use super::*;
+
+    #[test]
+    fn buffered_wav_matches_float32_reference_bytes() {
+        let dir = temp_dir("wav-bytes");
+        for channels in [1, 2] {
+            let audio = synthetic_audio(44_100, 32, channels);
+            let reference = dir.join(format!("reference-{channels}.wav"));
+            write_wav_f32(&reference, &audio).unwrap();
+            let mut actual = Vec::new();
+            write_wav_to(&mut actual, &audio).unwrap();
+            assert_eq!(actual, fs::read(reference).unwrap());
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[derive(Default)]
+    struct CountingWriter {
+        writes: usize,
+        bytes: usize,
+        largest_write: usize,
+        flushes: usize,
+        fail_write: bool,
+        fail_flush: bool,
+    }
+
+    impl Write for CountingWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if self.fail_write {
+                return Err(std::io::Error::other("simulated disk write failure"));
+            }
+            self.writes += 1;
+            self.bytes += bytes.len();
+            self.largest_write = self.largest_write.max(bytes.len());
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.flushes += 1;
+            if self.fail_flush {
+                Err(std::io::Error::other("simulated disk flush failure"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[test]
+    fn buffered_wav_batches_writes_and_propagates_disk_errors() {
+        let audio = synthetic_audio(44_100, 100_000, 2);
+        let mut writer = CountingWriter::default();
+        write_wav_to(&mut writer, &audio).unwrap();
+        assert_eq!(writer.bytes, 44 + audio.planar.len() * 4);
+        assert_eq!(writer.writes, 4);
+        assert_eq!(writer.largest_write, 256 * 1024);
+        assert_eq!(writer.flushes, 1);
+        for (fail_write, fail_flush, expected) in [
+            (true, false, "disk write failure"),
+            (false, true, "disk flush failure"),
+        ] {
+            let mut writer = CountingWriter {
+                fail_write,
+                fail_flush,
+                ..Default::default()
+            };
+            let error = write_wav_to(&mut writer, &audio).unwrap_err().to_string();
+            assert!(error.contains(expected), "{error}");
+        }
+    }
 
     fn temp_dir(name: &str) -> PathBuf {
         static NEXT: AtomicU64 = AtomicU64::new(0);

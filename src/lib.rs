@@ -7,6 +7,7 @@
 
 pub mod catalog;
 pub mod pipeline;
+pub mod status;
 
 /// Named outputs from the public `candle-roformer` API. `Stems::stems` holds
 /// every model-produced stem; the `vocals` and `instrumental` fields remain

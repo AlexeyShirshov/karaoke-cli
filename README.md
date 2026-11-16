@@ -200,6 +200,18 @@ stem is used internally for recognition but is not written as an audio file.
 In this mode, `.txt` and `.json` share the instrumental output basename,
 including its custom name if configured.
 
+After transcription, the console reports output saving at the default info log
+level: each file's encoding/writing start, preparation time, installation, and
+overall completion. Audio encoding and disk writes can take time after Whisper
+reaches 100%; transcription completion does not mean the files are saved yet.
+`--log_level warn|error|off` suppresses these info messages.
+Console timestamps use local `HH:MM:SS`; elapsed times use seconds, minutes and
+hours. Long model loading, decoding, separation, transcription, model cleanup,
+and per-file saving operations report their active stage every 10 seconds.
+This liveness status is not a completion percentage or remaining-time estimate.
+CLI WAV output uses a bounded 256 KiB write buffer rather than a disk write for
+every float32 sample; the IEEE-f32 WAV bytes and sample precision are unchanged.
+
 Whisper uses the same `--device` as separation, with no silent CPU fallback.
 At the default log level, transcription reports its start (including the device),
 processed audio duration and percentage, and completion with elapsed time:
