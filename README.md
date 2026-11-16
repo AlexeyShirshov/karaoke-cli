@@ -194,6 +194,12 @@ karaoke-cli "song.m4a" \
 `--whisper_tokenizer`, `--whisper_model`). Only the vocal stem is transcribed,
 never the mix.
 
+For **instrumental audio plus lyrics, without saving vocal audio**, add
+`--single_stem instrumental --transcribe` and the Whisper options. The vocal
+stem is used internally for recognition but is not written as an audio file.
+In this mode, `.txt` and `.json` share the instrumental output basename,
+including its custom name if configured.
+
 Whisper uses the same `--device` as separation, with no silent CPU fallback.
 At the default log level, transcription reports its start (including the device),
 processed audio duration and percentage, and completion with elapsed time:
@@ -284,7 +290,8 @@ profile, not the author's unmodified `config.yaml`: it explicitly selects
 `training.target_instrument: instrument`. The direct estimate is saved as
 `Instrumental`; the residual is saved as `Vocals` and used for transcription.
 Do not remove the `training` section or rename a checkpoint instead of converting
-it. Use `--single_stem instrumental` without `--transcribe` if only music is needed.
+it. Use `--single_stem instrumental` if only music is needed, or add
+`--transcribe` and the Whisper options for music plus lyrics without vocal audio.
 No model weights are downloaded by the CLI.
 
 ### Whisper assets

@@ -231,6 +231,55 @@ fn cli_transcription_reports_device_and_completion() {
 }
 
 #[test]
+fn cli_saves_instrumental_and_lyrics_without_a_vocal_audio_file() {
+    let dir = tmpdir("instrumental_and_lyrics");
+    let assets = tiny_separator_assets(&dir);
+    let profile = fs::read_to_string(&assets.config).unwrap();
+    fs::write(
+        &assets.config,
+        format!("{profile}\ntraining:\n  target_instrument: instrument\n"),
+    )
+    .unwrap();
+    let whisper = synth_whisper_assets("instrumental_and_lyrics_whisper");
+    let input = dir.join("song.wav");
+    write_wav_f32(&input, &stereo_source(44_100, 2000)).unwrap();
+    for chunked in [false, true] {
+        let output_dir = dir.join(format!("out-{chunked}"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_karaoke-cli"));
+        command
+            .arg(&input)
+            .arg("--model_filename")
+            .arg(&assets.checkpoint)
+            .arg("--config")
+            .arg(&assets.config)
+            .arg("--output_dir")
+            .arg(&output_dir)
+            .args(["--single_stem", "INSTRUMENTAL", "--transcribe"])
+            .arg("--whisper_model_dir")
+            .arg(whisper.config.parent().unwrap())
+            .args([
+                "--custom_output_names",
+                r#"{"instrumental":"backing","vocals":"unused"}"#,
+            ]);
+        if chunked {
+            command.args(["--chunk_seconds", "1"]);
+        }
+        let result = command.output().unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let mut files: Vec<_> = fs::read_dir(output_dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        files.sort();
+        assert_eq!(files, ["backing.json", "backing.txt", "backing.wav"]);
+    }
+}
+
+#[test]
 fn separate_and_transcribe_writes_stems_and_sidecars() {
     let dir = tmpdir("flow");
     let separator = tiny_separator_assets(&dir);
@@ -946,6 +995,22 @@ fn existing_outputs_fail_before_decode_separation_or_transcription() {
         ),
         (1, OutputFormat::Wav, None, true, true, "lead-take.txt"),
         (1, OutputFormat::Wav, None, true, true, "lead-take.json"),
+        (
+            1,
+            OutputFormat::Wav,
+            Some("INSTRUMENTAL"),
+            false,
+            true,
+            "song_(Instrumental)_tiny_sep.txt",
+        ),
+        (
+            1,
+            OutputFormat::Wav,
+            Some("instrumental"),
+            false,
+            true,
+            "song_(Instrumental)_tiny_sep.json",
+        ),
         (
             4,
             OutputFormat::Wav,
