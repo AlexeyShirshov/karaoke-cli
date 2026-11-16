@@ -193,6 +193,11 @@ karaoke-cli "song.m4a" \
 `--whisper_tokenizer`, `--whisper_model`). Only the vocal stem is transcribed,
 never the mix.
 
+Whisper uses the same `--device` as separation, with no silent CPU fallback.
+At the default log level, transcription reports its start (including the device)
+and completion with elapsed time. There is no per-window transcription percentage
+yet: the upstream API does not expose a progress callback.
+
 `--language auto` (the default) lets Whisper detect the language; on singing the
 detection is unreliable, so forcing a code is usually better.
 

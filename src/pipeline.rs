@@ -1106,8 +1106,14 @@ pub fn run_file_with_chunks(
             )));
         }
         let transcription_started = Instant::now();
-        let mut transcriber = Transcriber::load(assets, DeviceChoice::Cpu)?;
+        let device = separator.device_choice();
+        log::info!("transcription started (device={device:?})");
+        let mut transcriber = Transcriber::load(assets, device)?;
         let transcript_value = transcriber.transcribe_with(vocal, options)?;
+        log::info!(
+            "transcription finished ({:.1}s elapsed)",
+            transcription_started.elapsed().as_secs_f64()
+        );
         log::debug!(
             "stage=transcribe input={} elapsed_ms={}",
             request.input.display(),

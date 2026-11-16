@@ -181,6 +181,47 @@ fn tiny_separator_assets_with_stems(dir: &Path, num_stems: usize) -> LocalSepara
 }
 
 #[test]
+fn cli_transcription_reports_device_and_completion() {
+    let dir = tmpdir("cli_transcription_device");
+    tiny_separator_assets(&dir);
+    let whisper = synth_whisper_assets("cli_transcription_device_whisper");
+    let whisper_dir = whisper.config.parent().unwrap();
+    let input = dir.join("song.wav");
+    write_wav_f32(
+        &input,
+        &AudioBuffer {
+            sample_rate: 44_100,
+            channels: 1,
+            planar: (0..2000).map(|i| (i as f32 * 0.05).sin() * 0.4).collect(),
+        },
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_karaoke-cli"))
+        .arg(&input)
+        .arg("--model_filename")
+        .arg(dir.join("tiny_sep.safetensors"))
+        .arg("--config")
+        .arg(dir.join("tiny_sep.yaml"))
+        .arg("--output_dir")
+        .arg(dir.join("out"))
+        .args(["--device", "cpu", "--transcribe", "--whisper_model_dir"])
+        .arg(whisper_dir)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(result.status.success(), "{stderr}");
+    let started = stderr
+        .find("transcription started (device=Cpu)")
+        .expect("transcription must report the selected device");
+    let finished = stderr
+        .find("transcription finished (")
+        .expect("transcription must report completion");
+    assert!(started < finished, "{stderr}");
+    assert!(dir.join("out/song_(Vocals)_tiny_sep.txt").is_file());
+    assert!(dir.join("out/song_(Vocals)_tiny_sep.json").is_file());
+}
+
+#[test]
 fn separate_and_transcribe_writes_stems_and_sidecars() {
     let dir = tmpdir("flow");
     let separator = tiny_separator_assets(&dir);
