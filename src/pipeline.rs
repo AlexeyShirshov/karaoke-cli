@@ -956,7 +956,7 @@ fn named_stem<'a>(stems: &'a [(String, AudioBuffer)], name: &str) -> Option<&'a 
 }
 
 /// Separate and write all requested named stems. The complete set of output
-/// paths is preflighted before creating the output directory or writing files.
+/// paths is preflighted before decoding, inference, or writing files.
 pub fn run_file(separator: &Separator, request: &FileRequest) -> Result<FileResult, Error> {
     run_file_with_chunks(separator, request, None, &mut |_| {})
 }
@@ -971,6 +971,7 @@ pub fn run_file_with_chunks(
 ) -> Result<FileResult, Error> {
     validate_output_options(request.format, request.bitrate, request.sample_rate)
         .map_err(|message| Error::Audio(AudioError::UnsupportedFormat(message)))?;
+    preflight_file_request(separator, request)?;
     let decode_started = Instant::now();
     let mut input = read_audio(&request.input)?;
     trim_window(&mut input, request.start_seconds, request.limit_seconds)?;
@@ -1027,22 +1028,7 @@ pub fn run_file_with_chunks(
     let mut vocals_base = None;
     let mut duplicate_paths = HashSet::new();
     for (name, buffer) in &selected {
-        let base = custom_names
-            .get(&name.to_ascii_lowercase())
-            .cloned()
-            .unwrap_or_else(|| {
-                let input_stem = request
-                    .input
-                    .file_stem()
-                    .and_then(|value| value.to_str())
-                    .unwrap_or("audio");
-                format!(
-                    "{}_({})_{}",
-                    input_stem,
-                    stem_label(name),
-                    request.model_stem
-                )
-            });
+        let base = file_output_base(request, name, &custom_names);
         if name.eq_ignore_ascii_case("vocals") || (vocals_base.is_none() && stems.len() == 1) {
             vocals_base = Some(base.clone());
         }
@@ -1084,19 +1070,8 @@ pub fn run_file_with_chunks(
                 )));
             }
         }
-        let base = vocals_base.unwrap_or_else(|| {
-            let input_stem = request
-                .input
-                .file_stem()
-                .and_then(|value| value.to_str())
-                .unwrap_or("audio");
-            format!(
-                "{}_({})_{}",
-                input_stem,
-                stem_label("vocals"),
-                request.model_stem
-            )
-        });
+        let base =
+            vocals_base.unwrap_or_else(|| file_output_base(request, "vocals", &custom_names));
         let text_path = request.output_dir.join(format!("{base}.txt"));
         let json_path = request.output_dir.join(format!("{base}.json"));
         if !duplicate_paths.insert(text_path.clone()) || !duplicate_paths.insert(json_path.clone())
@@ -1162,6 +1137,83 @@ pub fn run_file_with_chunks(
         json: sidecars.map(|(_, json)| json),
         duration_seconds,
     })
+}
+
+fn file_output_base(
+    request: &FileRequest,
+    name: &str,
+    custom_names: &BTreeMap<String, String>,
+) -> String {
+    custom_names
+        .get(&name.to_ascii_lowercase())
+        .cloned()
+        .unwrap_or_else(|| {
+            let input_stem = request
+                .input
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or("audio");
+            format!(
+                "{}_({})_{}",
+                input_stem,
+                stem_label(name),
+                request.model_stem
+            )
+        })
+}
+
+/// Mirror candle-roformer 1.0.1's profile-based stem naming before inference:
+/// single-target profiles return vocals plus a residual; four-stem profiles
+/// return drums/bass/other/vocals; other profiles use stem_<index>.
+fn preflight_file_request(separator: &Separator, request: &FileRequest) -> Result<(), Error> {
+    let names: Vec<String> = match separator.config().num_stems {
+        0 | 1 => vec!["vocals".into(), "instrumental".into()],
+        4 => ["drums", "bass", "other", "vocals"]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        count => (0..count).map(|index| format!("stem_{index}")).collect(),
+    };
+    let custom_names = validate_custom_names(&request.custom_output_names, &names)
+        .map_err(|message| Error::Audio(AudioError::UnsupportedFormat(message)))?;
+    let selected = if let Some(selection) = &request.single_stem {
+        let name = names
+            .iter()
+            .find(|name| name.eq_ignore_ascii_case(selection))
+            .ok_or_else(|| {
+                Error::Audio(AudioError::UnsupportedFormat(format!(
+                    "unknown stem '{}'; available stems: {}",
+                    selection,
+                    names.join(", ")
+                )))
+            })?;
+        if request.whisper.is_some() && !name.eq_ignore_ascii_case("vocals") {
+            return Err(Error::Audio(AudioError::UnsupportedFormat(
+                "--transcribe requires --single_stem vocals when selecting one stem".into(),
+            )));
+        }
+        vec![name]
+    } else {
+        names.iter().collect()
+    };
+    let mut paths: Vec<PathBuf> = selected
+        .into_iter()
+        .map(|name| {
+            request.output_dir.join(format!(
+                "{}.{}",
+                file_output_base(request, name, &custom_names),
+                request.format.extension()
+            ))
+        })
+        .collect();
+    if request.whisper.is_some() {
+        let base = file_output_base(request, "vocals", &custom_names);
+        paths.push(request.output_dir.join(format!("{base}.txt")));
+        paths.push(request.output_dir.join(format!("{base}.json")));
+    }
+    // Keep the final pre-write check too, in case a destination appears while
+    // inference is running.
+    preflight_outputs(&request.output_dir, &paths, request.overwrite)
 }
 
 fn validate_custom_names(

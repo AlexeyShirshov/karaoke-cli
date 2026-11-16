@@ -912,6 +912,140 @@ fn chunked_request(input: PathBuf, output_dir: PathBuf) -> FileRequest {
     }
 }
 
+#[test]
+fn existing_outputs_fail_before_decode_separation_or_transcription() {
+    let dir = tmpdir("early_output_conflicts");
+    // Deliberately invalid audio and absent Whisper assets: output conflicts
+    // must take precedence over both decoding and model loading errors.
+    let input = dir.join("song.wav");
+    fs::write(&input, b"invalid audio").unwrap();
+    let cases = [
+        (
+            1,
+            OutputFormat::Wav,
+            None,
+            false,
+            false,
+            "song_(Vocals)_tiny_sep.wav",
+        ),
+        (
+            1,
+            OutputFormat::Flac,
+            None,
+            false,
+            false,
+            "song_(Instrumental)_tiny_sep.flac",
+        ),
+        (
+            1,
+            OutputFormat::Mp3,
+            Some("VOCALS"),
+            true,
+            false,
+            "lead-take.mp3",
+        ),
+        (1, OutputFormat::Wav, None, true, true, "lead-take.txt"),
+        (1, OutputFormat::Wav, None, true, true, "lead-take.json"),
+        (
+            4,
+            OutputFormat::Wav,
+            Some("BASS"),
+            true,
+            false,
+            "low-end.wav",
+        ),
+        (
+            4,
+            OutputFormat::Wav,
+            None,
+            false,
+            false,
+            "song_(Drums)_tiny_sep.wav",
+        ),
+        (
+            2,
+            OutputFormat::Wav,
+            None,
+            false,
+            false,
+            "song_(Stem_0)_tiny_sep.wav",
+        ),
+    ];
+    for (index, (count, format, selection, custom, transcribe, filename)) in
+        cases.into_iter().enumerate()
+    {
+        let model_dir = dir.join(format!("model-{index}"));
+        fs::create_dir_all(&model_dir).unwrap();
+        let assets = tiny_separator_assets_with_stems(&model_dir, count);
+        let separator =
+            load_separator_with_options(&assets, DeviceChoice::Cpu, InferenceOverrides::default())
+                .unwrap();
+        let output_dir = dir.join(format!("out-{index}"));
+        fs::create_dir_all(&output_dir).unwrap();
+        let existing = output_dir.join(filename);
+        fs::write(&existing, b"preserve").unwrap();
+        let mut request = chunked_request(input.clone(), output_dir.clone());
+        request.format = format;
+        request.single_stem = selection.map(String::from);
+        if custom {
+            let stem = if count == 4 { "bass" } else { "vocals" };
+            let base = if count == 4 { "low-end" } else { "lead-take" };
+            request.custom_output_names.insert(stem.into(), base.into());
+        }
+        if transcribe {
+            request.whisper = Some((
+                LocalWhisperAssets::new("missing-config", "missing-tokenizer", "missing-weights"),
+                TranscribeOptions::default(),
+            ));
+        }
+        let mut chunks_finished = 0;
+        let error = run_file_with_chunks(
+            &separator,
+            &request,
+            Some(&ChunkConfig::new(1.0, Some(0.25), 0.0, 0.0)),
+            &mut |_| chunks_finished += 1,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("output file exists"),
+            "case {index}: {error}"
+        );
+        assert!(error.contains(filename), "case {index}: {error}");
+        assert_eq!(chunks_finished, 0);
+        assert_eq!(fs::read(&existing).unwrap(), b"preserve");
+        assert_eq!(fs::read_dir(output_dir).unwrap().count(), 1);
+    }
+}
+
+#[test]
+fn early_preflight_respects_overwrite_and_only_checks_requested_outputs() {
+    let dir = tmpdir("early_output_overwrite");
+    let assets = tiny_separator_assets(&dir);
+    let separator =
+        load_separator_with_options(&assets, DeviceChoice::Cpu, InferenceOverrides::default())
+            .unwrap();
+    let input = dir.join("song.wav");
+    write_wav_f32(&input, &stereo_source(44_100, 2000)).unwrap();
+    let output_dir = dir.join("out");
+    fs::create_dir_all(&output_dir).unwrap();
+    let vocal = output_dir.join("song_(Vocals)_tiny_sep.wav");
+    let instrumental = output_dir.join("song_(Instrumental)_tiny_sep.wav");
+    let sidecar = output_dir.join("song_(Vocals)_tiny_sep.txt");
+    fs::write(&instrumental, b"preserve instrumental").unwrap();
+    fs::write(&sidecar, b"preserve transcript").unwrap();
+    let mut request = chunked_request(input, output_dir);
+    request.single_stem = Some("vocals".into());
+    // An unselected stem and an unrequested sidecar must not block processing.
+    run_file(&separator, &request).unwrap();
+    fs::write(&vocal, b"replace vocal").unwrap();
+    request.overwrite = true;
+    run_file(&separator, &request).unwrap();
+    assert_ne!(fs::read(vocal).unwrap(), b"replace vocal");
+    assert_eq!(fs::read(instrumental).unwrap(), b"preserve instrumental");
+    assert_eq!(fs::read(sidecar).unwrap(), b"preserve transcript");
+}
+
 fn stereo_source(sample_rate: u32, frames: usize) -> AudioBuffer {
     let mut planar = Vec::with_capacity(frames * 2);
     planar.extend((0..frames).map(|i| (i as f32 * 0.031).sin() * 0.4));

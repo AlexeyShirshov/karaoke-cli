@@ -100,7 +100,8 @@ outputs are written.
 
 Pass one or more files and/or directories. Directories are scanned
 non-recursively and supported audio files are sorted in a stable order. Each
-file is preflighted independently; a failed or existing output is reported,
+file's requested output paths (including transcription sidecars) are preflighted
+before audio decoding or inference; a failed or existing output is reported,
 later inputs are still attempted, and the command returns nonzero if any input
 failed. Existing outputs are left untouched unless `--overwrite` is set.
 
