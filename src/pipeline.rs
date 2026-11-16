@@ -989,14 +989,12 @@ pub fn run_file_with_chunks(
 
     let separate_started = Instant::now();
     log::info!("separation started");
-    let separate_activity = Activity::start("separating audio");
     let stems = match chunks {
         // Always go through the chunked path when it is enabled: it also owns
         // the level processing, which is switched off inside the model then.
         Some(config) => separate_chunked(separator, &input, config, progress)?,
         None => separator.separate(&input)?.stems,
     };
-    drop(separate_activity);
     log::info!(
         "separation finished ({} elapsed)",
         format_duration(separate_started.elapsed())
