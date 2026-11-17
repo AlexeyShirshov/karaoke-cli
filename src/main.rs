@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::env;
+use std::io::{self, IsTerminal};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::time::Duration;
@@ -14,6 +15,8 @@ use karaoke_cli::pipeline::{
 };
 use karaoke_cli::status::{format_duration, Activity};
 use log::{LevelFilter, Log, Metadata, Record};
+
+mod wizard;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const CANDLE_ROFORMER_VERSION: &str = env!("CANDLE_ROFORMER_VERSION");
@@ -79,21 +82,33 @@ struct Args {
     list_limit: Option<usize>,
     list_format: String,
     models_manifest: Option<PathBuf>,
+    download_models: bool,
+    whisper_size: String,
+}
+
+fn version_banner() -> String {
+    format!("karaoke-cli {VERSION} (candle-roformer {CANDLE_ROFORMER_VERSION})")
 }
 
 fn print_help() {
-    println!("karaoke-cli {}", VERSION);
+    println!("{}", version_banner());
     println!();
     println!("Usage:");
     println!("  karaoke-cli [audio files or directories...] --model_filename <file.safetensors> [options]");
+    println!("  karaoke-cli              Interactive wizard (terminal only)");
+    println!("  karaoke-cli --wizard     Explicit interactive wizard");
     println!();
     println!("Options:");
-    println!("  --model_filename <file>   Local checkpoint (alias: --model)");
+    println!(
+        "  --model_filename <name|file>  Catalog model name or local checkpoint (alias: --model)"
+    );
     println!(
         "  --config <file.yaml>      Model profile (default: <model-stem>.yaml next to model)"
     );
     println!("  --model_file_dir <dir>    Directory for relative model/config paths");
-    println!("  --output_dir <dir>        Output directory (default: .)");
+    println!("  --download_models        Download missing catalog assets into ./models (opt-in)");
+    println!("                           With no audio inputs: download/prepare models only");
+    println!("  --output_dir <dir>        Output directory (default: out)");
     println!("  --output_format wav|flac|mp3 (default: wav; M4A/AAC are rejected)");
     println!("  --output_bitrate <kbps>   MP3 CBR bitrate (default: 192)");
     println!("  --sample_rate <Hz>        Resample output with candle-roformer's resampler");
@@ -127,6 +142,9 @@ fn print_help() {
         "  --whisper_model_dir <dir> Directory with config.json, tokenizer.json, model.safetensors"
     );
     println!("  --whisper_model <file>    Override model.safetensors (local path)");
+    println!(
+        "  --whisper_size <size>    Download variant (default: small); requires --download_models"
+    );
     println!("  --whisper_config <file>   Override config.json (local path)");
     println!("  --whisper_tokenizer <file> Override tokenizer.json (local path)");
     println!("  --language <auto|code>    Whisper language (default: auto)");
@@ -158,7 +176,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         inputs: Vec::new(),
         model: None,
         config: None,
-        output_dir: PathBuf::from("."),
+        output_dir: PathBuf::from("out"),
         model_file_dir: None,
         format: OutputFormat::Wav,
         bitrate: None,
@@ -188,6 +206,8 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         list_limit: None,
         list_format: "pretty".into(),
         models_manifest: None,
+        download_models: false,
+        whisper_size: "small".into(),
     };
     let mut positional_only = false;
     let mut index = 0;
@@ -217,6 +237,14 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
             }
             "--model_file_dir" | "--model-file-dir" => {
                 args.model_file_dir = Some(value(argv, index, arg)?);
+                index += 2;
+            }
+            "--download_models" | "--download-models" => {
+                args.download_models = true;
+                index += 1;
+            }
+            "--whisper_size" | "--whisper-size" => {
+                args.whisper_size = value(argv, index, arg)?;
                 index += 2;
             }
             "--output_format" | "--output-format" => {
@@ -368,7 +396,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
                 index += 1;
             }
             "--version" | "-V" => {
-                println!("{}", VERSION);
+                println!("{}", version_banner());
                 process::exit(0);
             }
             "--help" | "-h" => {
@@ -400,6 +428,65 @@ fn resolve_in(dir: Option<&str>, name: &str) -> PathBuf {
     }
     dir.map(|directory| Path::new(directory).join(name))
         .unwrap_or_else(|| path.to_path_buf())
+}
+
+fn separation_model_dir(args: &Args) -> Option<&str> {
+    args.model_file_dir.as_deref().or(if args.download_models {
+        Some("models")
+    } else {
+        None
+    })
+}
+
+fn separation_paths(
+    args: &Args,
+    models: &[catalog::ModelInfo],
+) -> Result<(PathBuf, PathBuf), String> {
+    let requested = args
+        .model
+        .as_deref()
+        .ok_or("--model_filename is required")?;
+    let path = Path::new(requested);
+    let bare = path
+        .parent()
+        .is_none_or(|parent| parent.as_os_str().is_empty());
+    let known = catalog::find_model(models, requested)?;
+    let short_name = bare && known.is_some_and(|model| requested != model.filename);
+    let filename = if short_name {
+        known.expect("resolved short name").filename.as_str()
+    } else {
+        requested
+    };
+    let directory = separation_model_dir(args).or(if short_name { Some("models") } else { None });
+    let model_path = resolve_in(directory, filename);
+    let config_path = match &args.config {
+        Some(config) => resolve_in(directory, config),
+        None => match known.and_then(|model| model.config_filename.as_deref()) {
+            Some(config) => model_path.with_file_name(config),
+            None => model_path.with_extension("yaml"),
+        },
+    };
+    Ok((model_path, config_path))
+}
+
+fn whisper_paths(args: &Args) -> (PathBuf, PathBuf, PathBuf) {
+    let default_dir = format!("models/whisper-{}", args.whisper_size);
+    let dir = args
+        .whisper_model_dir
+        .as_deref()
+        .or(if args.download_models {
+            Some(default_dir.as_str())
+        } else {
+            None
+        });
+    let resolve = |explicit: &Option<String>, default: &str| {
+        resolve_in(dir, explicit.as_deref().unwrap_or(default))
+    };
+    (
+        resolve(&args.whisper_config, "config.json"),
+        resolve(&args.whisper_tokenizer, "tokenizer.json"),
+        resolve(&args.whisper_model, "model.safetensors"),
+    )
 }
 
 fn env_info_report(
@@ -502,6 +589,20 @@ fn list_models(args: &Args) -> Result<(), String> {
 
 fn run() -> Result<i32, String> {
     let mut argv: Vec<String> = env::args().skip(1).collect();
+    let interactive = argv == ["--wizard"]
+        || (argv.is_empty() && io::stdin().is_terminal() && io::stdout().is_terminal());
+    if interactive {
+        let executable = env::current_exe().map_err(|error| error.to_string())?;
+        argv = match wizard::run(
+            io::stdin().lock(),
+            io::stdout().lock(),
+            &version_banner(),
+            &executable.to_string_lossy(),
+        )? {
+            Some(argv) => argv,
+            None => return Ok(0),
+        };
+    }
     if argv.first().map(String::as_str) == Some("separate") {
         argv.remove(0);
     }
@@ -510,10 +611,22 @@ fn run() -> Result<i32, String> {
     log::set_max_level(args.log_level);
 
     if args.env_info {
+        let paths = if args.model.is_some() {
+            let models = match &args.models_manifest {
+                Some(path) => catalog::load_models(path)?,
+                None => catalog::builtin_models()?,
+            };
+            Some(separation_paths(&args, &models)?)
+        } else {
+            None
+        };
         print_env_info(
-            args.model_file_dir.as_deref(),
-            args.model.as_deref(),
-            args.config.as_deref(),
+            separation_model_dir(&args),
+            paths.as_ref().and_then(|paths| paths.0.to_str()),
+            paths
+                .as_ref()
+                .and_then(|paths| paths.1.to_str())
+                .or(args.config.as_deref()),
         );
         return Ok(0);
     }
@@ -521,11 +634,12 @@ fn run() -> Result<i32, String> {
         list_models(&args)?;
         return Ok(0);
     }
-    if args.inputs.is_empty() {
+    if args.inputs.is_empty() && !args.download_models {
         print_help();
         return Err("no input audio files or directories".into());
     }
     if args.transcribe
+        && !args.download_models
         && args.whisper_model_dir.is_none()
         && args.whisper_model.is_none()
         && args.whisper_config.is_none()
@@ -538,7 +652,7 @@ fn run() -> Result<i32, String> {
     karaoke_cli::pipeline::validate_output_options(args.format, args.bitrate, args.sample_rate)?;
 
     let expansion = expand_inputs(&args.inputs);
-    if expansion.files.is_empty() {
+    if expansion.files.is_empty() && !args.inputs.is_empty() {
         let detail = if expansion.errors.is_empty() {
             "input expansion selected zero audio files".to_string()
         } else {
@@ -547,27 +661,22 @@ fn run() -> Result<i32, String> {
         return Err(detail);
     }
 
-    let model_name = args
-        .model
-        .as_deref()
-        .ok_or_else(|| "--model_filename is required".to_string())?;
-    let model_path = resolve_in(args.model_file_dir.as_deref(), model_name);
+    let models = match &args.models_manifest {
+        Some(path) => catalog::load_models(path)?,
+        None => catalog::builtin_models()?,
+    };
+    let (model_path, config_path) = separation_paths(&args, &models)?;
     let model_stem = model_path
         .file_stem()
         .and_then(|stem| stem.to_str())
         .unwrap_or("model")
         .to_string();
-    let config_path = match &args.config {
-        Some(config) => resolve_in(args.model_file_dir.as_deref(), config),
-        None => model_path.with_extension("yaml"),
-    };
     let device = match args.device.to_ascii_lowercase().as_str() {
         "cpu" => DeviceChoice::Cpu,
         "cuda" => DeviceChoice::Cuda,
         "metal" => DeviceChoice::Metal,
         other => return Err(format!("unknown device '{other}'")),
     };
-    let separator_assets = LocalSeparationAssets::new(model_path.clone(), config_path);
     let chunk_config = match args.chunk_seconds {
         Some(chunk_seconds) => {
             let config = ChunkConfig::new(
@@ -584,6 +693,27 @@ fn run() -> Result<i32, String> {
     // With chunking the CLI applies amplification and normalization once over
     // the whole file; leaving them in the model would renormalise every chunk.
     let model_levels = chunk_config.is_none();
+    let whisper_paths = args.transcribe.then(|| whisper_paths(&args));
+    if args.download_models {
+        if args.transcribe
+            && !karaoke_cli::download::WHISPER_SIZES.contains(&args.whisper_size.as_str())
+        {
+            return Err(format!(
+                "unsupported --whisper_size '{}'",
+                args.whisper_size
+            ));
+        }
+        let downloader = karaoke_cli::download::Downloader::new()?;
+        downloader.separator(&models, &model_path, &config_path)?;
+        if let Some((config, tokenizer, weights)) = &whisper_paths {
+            downloader.whisper(&args.whisper_size, config, tokenizer, weights)?;
+        }
+    }
+    if args.inputs.is_empty() {
+        log::info!("requested models are ready");
+        return Ok(0);
+    }
+    let separator_assets = LocalSeparationAssets::new(model_path.clone(), config_path);
     log::info!(
         "loading separation model (device={device:?}): {}",
         model_path.display()
@@ -610,17 +740,8 @@ fn run() -> Result<i32, String> {
     drop(loading_activity);
     log::info!("separation model loaded");
 
-    let whisper = if args.transcribe {
-        let dir = args.whisper_model_dir.as_deref();
-        let resolve = |explicit: &Option<String>, default: &str| match explicit {
-            Some(path) => resolve_in(dir, path),
-            None => resolve_in(dir, default),
-        };
-        let assets = LocalWhisperAssets::new(
-            resolve(&args.whisper_config, "config.json"),
-            resolve(&args.whisper_tokenizer, "tokenizer.json"),
-            resolve(&args.whisper_model, "model.safetensors"),
-        );
+    let whisper = if let Some((config, tokenizer, weights)) = whisper_paths {
+        let assets = LocalWhisperAssets::new(config, tokenizer, weights);
         let language = match args.language.as_deref() {
             None | Some("auto") => None,
             Some(language) => Some(language.to_string()),
@@ -712,6 +833,12 @@ fn run() -> Result<i32, String> {
 }
 
 fn main() {
+    #[cfg(all(windows, feature = "cuda"))]
+    if let Err(error) = configure_cuda_dll_directory() {
+        eprintln!("error: {error}");
+        process::exit(2);
+    }
+
     match run() {
         Ok(code) => process::exit(code),
         Err(error) => {
@@ -721,9 +848,173 @@ fn main() {
     }
 }
 
+// nvcc registers its fat binaries from C++ static constructors, before main.
+// MSVC sorts XCT before the normal XCU constructors, so delay-loaded cudart can
+// already find the portable bin directory during that registration.
+#[cfg(all(windows, target_env = "msvc", feature = "cuda"))]
+#[used]
+#[link_section = ".CRT$XCT"]
+static EARLY_CUDA_DLL_DIRECTORY: extern "C" fn() = configure_cuda_dll_directory_early;
+
+#[cfg(all(windows, target_env = "msvc", feature = "cuda"))]
+extern "C" fn configure_cuda_dll_directory_early() {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetModuleFileNameW(module: *mut std::ffi::c_void, path: *mut u16, size: u32) -> u32;
+        fn GetFileAttributesW(path: *const u16) -> u32;
+        fn SetDllDirectoryW(path: *const u16) -> i32;
+    }
+    // No allocation or Rust runtime facilities before main. The buffer covers
+    // Windows' maximum extended-length path, including the appended bin name.
+    let mut path = [0_u16; 32768];
+    // SAFETY: the writable buffer has the stated size; NULL selects this EXE.
+    let len =
+        unsafe { GetModuleFileNameW(std::ptr::null_mut(), path.as_mut_ptr(), path.len() as u32) }
+            as usize;
+    if len == 0 || len >= path.len() {
+        return;
+    }
+    let Some(separator) = path[..len]
+        .iter()
+        .rposition(|unit| *unit == 92 || *unit == 47)
+    else {
+        return;
+    };
+    let start = separator + 1;
+    if start + 4 > path.len() {
+        return;
+    }
+    path[start..start + 4].copy_from_slice(&[98, 105, 110, 0]); // bin\0
+                                                                // SAFETY: path is an absolute, NUL-terminated UTF-16 string. These calls
+                                                                // neither load CUDA nor rely on Rust initialization.
+    unsafe {
+        let attributes = GetFileAttributesW(path.as_ptr());
+        if attributes != u32::MAX && attributes & 0x10 != 0 {
+            SetDllDirectoryW(path.as_ptr());
+        }
+    }
+}
+
+#[cfg(all(windows, feature = "cuda"))]
+fn configure_cuda_dll_directory() -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn SetDllDirectoryW(path: *const u16) -> i32;
+    }
+
+    let executable = env::current_exe().map_err(|error| error.to_string())?;
+    let bin = executable
+        .parent()
+        .ok_or("cannot locate executable directory")?
+        .join("bin");
+    // Source builds may use the installed Toolkit instead of a portable bundle.
+    if !bin.is_dir() {
+        return Ok(());
+    }
+    let path: Vec<u16> = bin.as_os_str().encode_wide().chain(Some(0)).collect();
+    // SAFETY: path is an absolute, NUL-terminated UTF-16 string that remains
+    // alive for the call. Early initialization handles nvcc's constructors;
+    // this also reports errors normally after the Rust runtime is initialized.
+    if unsafe { SetDllDirectoryW(path.as_ptr()) } == 0 {
+        return Err(format!(
+            "cannot configure CUDA DLL directory {}: {}",
+            bin.display(),
+            std::io::Error::last_os_error()
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod cli_tests {
     use super::*;
+
+    #[test]
+    fn output_directory_defaults_to_out_and_allows_explicit_override() {
+        assert_eq!(parse_args(&[]).unwrap().output_dir, PathBuf::from("out"));
+        for flag in ["--output_dir", "--output-dir", "--output"] {
+            let args = parse_args(&[flag.into(), ".".into()]).unwrap();
+            assert_eq!(args.output_dir, PathBuf::from("."));
+        }
+    }
+
+    #[test]
+    fn catalog_names_resolve_weights_and_matching_profiles_automatically() {
+        let models = catalog::builtin_models().unwrap();
+        for flag in [false, true] {
+            let mut argv = vec!["--model".into(), "mbr_instfv6n_gabox".into()];
+            if flag {
+                argv.push("--download_models".into());
+            }
+            let mut args = parse_args(&argv).unwrap();
+            let paths = separation_paths(&args, &models).unwrap();
+            assert_eq!(
+                paths.0,
+                PathBuf::from("models/mbr_instfv6n_gabox.safetensors")
+            );
+            assert_eq!(
+                paths.1,
+                PathBuf::from("models/mbr_instfv6n_gabox_config.yaml")
+            );
+            args.model_file_dir = Some("custom".into());
+            let paths = separation_paths(&args, &models).unwrap();
+            assert_eq!(
+                paths.0,
+                PathBuf::from("custom/mbr_instfv6n_gabox.safetensors")
+            );
+            assert_eq!(
+                paths.1,
+                PathBuf::from("custom/mbr_instfv6n_gabox_config.yaml")
+            );
+            args.model = Some("explicit/mbr_instfv6n_gabox.safetensors".into());
+            let paths = separation_paths(&args, &models).unwrap();
+            assert_eq!(
+                paths.0,
+                PathBuf::from("explicit/mbr_instfv6n_gabox.safetensors")
+            );
+            assert_eq!(
+                paths.1,
+                PathBuf::from("explicit/mbr_instfv6n_gabox_config.yaml")
+            );
+        }
+    }
+
+    #[test]
+    fn download_flags_default_to_models_without_changing_offline_paths() {
+        let offline = parse_args(&[]).unwrap();
+        assert!(!offline.download_models);
+        assert_eq!(separation_model_dir(&offline), None);
+        assert_eq!(whisper_paths(&offline).0, PathBuf::from("config.json"));
+
+        let mut args = parse_args(&[
+            "--download_models".into(),
+            "--whisper_size".into(),
+            "tiny".into(),
+        ])
+        .unwrap();
+        assert_eq!(separation_model_dir(&args), Some("models"));
+        let paths = whisper_paths(&args);
+        assert_eq!(paths.0, PathBuf::from("models/whisper-tiny/config.json"));
+        assert_eq!(paths.1, PathBuf::from("models/whisper-tiny/tokenizer.json"));
+        assert_eq!(
+            paths.2,
+            PathBuf::from("models/whisper-tiny/model.safetensors")
+        );
+        args.model_file_dir = Some("custom-models".into());
+        args.whisper_model_dir = Some("custom-whisper".into());
+        assert_eq!(separation_model_dir(&args), Some("custom-models"));
+        assert_eq!(
+            whisper_paths(&args).0,
+            PathBuf::from("custom-whisper/config.json")
+        );
+        args.whisper_config = Some("explicit/config.json".into());
+        assert_eq!(
+            whisper_paths(&args).0,
+            PathBuf::from("explicit/config.json")
+        );
+    }
 
     fn cargo_lock_field(package_name: &str, field: &str) -> String {
         let prefix = format!("{field} = \"");

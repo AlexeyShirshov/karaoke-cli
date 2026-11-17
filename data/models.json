@@ -6,7 +6,14 @@
     "stems": ["vocals", "instrumental"],
     "SDR": null,
     "checksum": null,
-    "weights": "Convert v2_inst/bs_roformer_inst_hyperacev2.ckpt from https://huggingface.co/pcunwa/BS-Roformer-HyperACE with candle-roformer's tools/convert_hyperace.py. Use configs/bs_roformer_hyperace_v2_inst.yaml from candle-roformer 1.0.2, including its explicit family and instrumental target."
+    "aliases": ["hyperace", "hyperace-v2-inst", "bs_inst_hyperace2_unwa"],
+    "weights": "Automatically downloaded and converted to safetensors with --download_models.",
+    "download": {
+      "model_url": "https://huggingface.co/pcunwa/BS-Roformer-HyperACE/resolve/5b1f8283125d5e4a3614d0e3635a636e09c84059/v2_inst/bs_roformer_inst_hyperacev2.ckpt",
+      "config_url": "https://raw.githubusercontent.com/AlexeyShirshov/candle-roformer/v1.0.2/configs/bs_roformer_hyperace_v2_inst.yaml",
+      "sha256": "4d61178ef966d2b4e9ad456ffbbc6fd5b2828df07a7af32931142c1a5ff1fe6f",
+      "format": "pytorch"
+    }
   },
   {
     "name": "BS-RoFormer Viperx 1297 (vocals)",
@@ -15,7 +22,14 @@
     "stems": ["vocals", "instrumental"],
     "SDR": 12.9755,
     "checksum": "5b84f37e8d444c8cb30c79d77f613a41c05868ff9c9ac6c7049c00aefae115aa",
-    "weights": "Download the published .ckpt named in configs/bs_roformer_viperx_1297.yaml, then convert it to safetensors with candle-roformer's tools/convert_bs_roformer.py. The checksum is for the source checkpoint."
+    "aliases": ["viperx", "viperx-1297", "bs_vocals_1297_viperx"],
+    "weights": "Automatically downloaded and converted to safetensors with --download_models. The checksum describes the source checkpoint.",
+    "download": {
+      "model_url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+      "config_url": "https://raw.githubusercontent.com/AlexeyShirshov/candle-roformer/v1.0.2/configs/bs_roformer_viperx_1297.yaml",
+      "sha256": "5b84f37e8d444c8cb30c79d77f613a41c05868ff9c9ac6c7049c00aefae115aa",
+      "format": "pytorch"
+    }
   },
   {
     "name": "GaboxR67 voc_fv7 (vocals)",
@@ -24,15 +38,44 @@
     "stems": ["vocals", "instrumental"],
     "SDR": null,
     "checksum": null,
-    "weights": "Obtain voc_fv7.ckpt from the source identified in candle-roformer's configs/voc_fv7.yaml and convert it with tools/convert_voc_fv7.py."
+    "aliases": ["gabox-voc-fv7", "mbr_vocalsfv7_gabox"],
+    "weights": "Automatically downloaded and converted to safetensors with --download_models.",
+    "download": {
+      "model_url": "https://huggingface.co/GaboxR67/MelBandRoformers/resolve/7860d31d8cc1c73b46c1cbdc2b497210c97478ae/melbandroformers/vocals/voc_fv7.ckpt",
+      "config_url": "https://raw.githubusercontent.com/AlexeyShirshov/candle-roformer/v1.0.2/configs/voc_fv7.yaml",
+      "sha256": "77b9e4b54802d670c02daceb30c61ec825dc54ca6c29c34b03cdd5e9f78382b6",
+      "format": "pytorch"
+    }
   },
   {
     "name": "KimberleyJSN MelBandRoformer 384 (vocals)",
     "filename": "MelBandRoformer_fp32.safetensors",
+    "aliases": ["melband", "kijai"],
     "architecture": "MelBandRoformer",
     "stems": ["vocals", "instrumental"],
     "SDR": null,
     "checksum": null,
-    "weights": "Obtain the f32 safetensors checkpoint published by the Kijai mirror; its model profile is candle-roformer's configs/kijai_melband_384.yaml."
+    "weights": "Obtain the f32 safetensors checkpoint published by the Kijai mirror; its model profile is candle-roformer's configs/kijai_melband_384.yaml. Automatic download is available with --download_models.",
+    "download": {
+      "model_url": "https://huggingface.co/Kijai/MelBandRoFormer_comfy/resolve/7dc5fa7824f1f3089a5c4b130d767004ccc1ed12/MelBandRoformer_fp32.safetensors",
+      "config_url": "https://raw.githubusercontent.com/AlexeyShirshov/candle-roformer/v1.0.2/configs/kijai_melband_384.yaml",
+      "sha256": "bdc1643fc59480722b50b223d6b07021eacdee4cb4d72f55dd600ee3c96d6327"
+    }
+  },
+  {
+    "name": "Gabox MelBandRoformer Inst FV6N",
+    "filename": "mbr_instfv6n_gabox.safetensors",
+    "config_filename": "mbr_instfv6n_gabox_config.yaml",
+    "aliases": ["gabox-inst-fv6n"],
+    "architecture": "MelBandRoformer",
+    "stems": ["vocals", "instrumental"],
+    "weights": "Automatically downloaded and converted to safetensors with --download_models.",
+    "download": {
+      "model_url": "https://huggingface.co/noblebarkrr/mvsepless_resources/resolve/283025218e6447db47da1ad18df3c2f67ca8d66d/mel_band_roformer/mbr_instfv6n_gabox.ckpt",
+      "config_url": "https://huggingface.co/noblebarkrr/mvsepless_resources/resolve/283025218e6447db47da1ad18df3c2f67ca8d66d/mel_band_roformer/mbr_instfv6n_gabox_config.yaml",
+      "sha256": "802f3e5d183d7c4b50dea147c320e61634f5be6ff55fa899fdebeaf0f3cf7f42",
+      "format": "pytorch",
+      "target_instrument": "instrumental"
+    }
   }
 ]

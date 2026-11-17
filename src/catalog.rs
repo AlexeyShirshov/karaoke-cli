@@ -18,11 +18,76 @@ pub struct ModelInfo {
     /// Instructions for obtaining and preparing the weights; no weights are bundled.
     #[serde(default)]
     pub weights: String,
+    /// Built-in or user-supplied source for automatic model preparation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub download: Option<ModelDownload>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_filename: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ModelDownload {
+    pub model_url: String,
+    pub config_url: String,
+    /// SHA-256 of the downloaded file (source .ckpt for format=pytorch).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "is_safetensors")]
+    pub format: DownloadFormat,
+    /// Adapt a newly fetched author's profile to the runtime's stem names.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_instrument: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum DownloadFormat {
+    #[default]
+    Safetensors,
+    Pytorch,
+}
+
+fn is_safetensors(format: &DownloadFormat) -> bool {
+    *format == DownloadFormat::Safetensors
+}
+
+/// Resolve an exact catalog filename, its extensionless stem, or a known alias.
+/// Explicit paths remain paths; their basename is used only to find a source.
+pub fn find_model<'a>(
+    models: &'a [ModelInfo],
+    selector: &str,
+) -> Result<Option<&'a ModelInfo>, String> {
+    let name = Path::new(selector)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| format!("invalid model name: {selector}"))?;
+    let mut matches = models.iter().filter(|model| {
+        model.filename.eq_ignore_ascii_case(name)
+            || Path::new(&model.filename)
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .is_some_and(|stem| stem.eq_ignore_ascii_case(name))
+            || model
+                .aliases
+                .iter()
+                .any(|alias| alias.eq_ignore_ascii_case(name))
+    });
+    let found = matches.next();
+    if matches.next().is_some() {
+        return Err(format!("ambiguous catalog model name: {name}"));
+    }
+    Ok(found)
 }
 
 pub fn builtin_models() -> Result<Vec<ModelInfo>, String> {
-    serde_json::from_str(include_str!("../data/models.json"))
-        .map_err(|error| format!("cannot parse built-in model catalog: {error}"))
+    let models: Vec<ModelInfo> = serde_json::from_str(include_str!("../data/models.json"))
+        .map_err(|error| format!("cannot parse built-in model catalog: {error}"))?;
+    validate_models(&models)?;
+    Ok(models)
 }
 
 /// Load a user manifest containing either a JSON/YAML array or `{ "models": [...] }`.
@@ -47,6 +112,19 @@ pub fn load_models(path: &Path) -> Result<Vec<ModelInfo>, String> {
 
 pub fn validate_models(models: &[ModelInfo]) -> Result<(), String> {
     for (index, model) in models.iter().enumerate() {
+        for filename in
+            std::iter::once(model.filename.as_str()).chain(model.config_filename.as_deref())
+        {
+            if filename.trim().is_empty()
+                || filename.contains(['/', '\\', ':'])
+                || filename == "."
+                || filename == ".."
+            {
+                return Err(format!(
+                    "catalog filenames must be plain basenames: {filename}"
+                ));
+            }
+        }
         if model.name.trim().is_empty()
             || model.filename.trim().is_empty()
             || model.architecture.trim().is_empty()
@@ -73,11 +151,12 @@ pub fn list_models(
         .filter(|model| {
             filter.as_ref().is_none_or(|filter| {
                 format!(
-                    "{} {} {} {}",
+                    "{} {} {} {} {}",
                     model.name,
                     model.filename,
                     model.architecture,
-                    model.stems.join(" ")
+                    model.stems.join(" "),
+                    model.aliases.join(" ")
                 )
                 .to_ascii_lowercase()
                 .contains(filter)
@@ -122,7 +201,7 @@ mod tests {
     #[test]
     fn builtin_catalog_is_local_filterable_and_stable_json() {
         let models = builtin_models().unwrap();
-        assert_eq!(models.len(), 4);
+        assert_eq!(models.len(), 5);
         assert_eq!(list_models(&models, Some("viperx"), None).len(), 1);
         let hyperace = list_models(&models, Some("hyperace"), None);
         assert_eq!(hyperace.len(), 1);
@@ -131,6 +210,37 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value[0]["name"], models[0].name);
         assert!(render_pretty(&models).starts_with("NAME | FILENAME | ARCHITECTURE"));
+    }
+
+    #[test]
+    fn every_builtin_model_has_a_download_source_and_resolves_short_names() {
+        let models = builtin_models().unwrap();
+        for model in &models {
+            let source = model.download.as_ref().expect("built-in download source");
+            assert!(source.model_url.starts_with("https://"));
+            assert!(source.config_url.starts_with("https://"));
+            assert_eq!(source.sha256.as_ref().unwrap().len(), 64);
+            let stem = Path::new(&model.filename)
+                .file_stem()
+                .unwrap()
+                .to_str()
+                .unwrap();
+            for selector in std::iter::once(stem)
+                .chain(std::iter::once(model.filename.as_str()))
+                .chain(model.aliases.iter().map(String::as_str))
+            {
+                assert_eq!(find_model(&models, selector).unwrap(), Some(model));
+            }
+        }
+        assert!(find_model(&models, "unknown-model").unwrap().is_none());
+        assert_eq!(
+            find_model(&models, "mbr_instfv6n_gabox")
+                .unwrap()
+                .unwrap()
+                .config_filename
+                .as_deref(),
+            Some("mbr_instfv6n_gabox_config.yaml")
+        );
     }
 
     #[test]

@@ -101,6 +101,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary }}" $stage
           if ($env:CUDA_BUILD -eq 'true') {
+            $bin = Join-Path $stage 'bin'
+            New-Item -ItemType Directory -Force -Path $bin | Out-Null
             # Only redistributable user-mode runtime libraries, never nvcuda.dll
             # (the NVIDIA driver must be installed on the user's machine).
             $patterns = 'cublas64_*.dll', 'cublasLt64_*.dll', 'curand64_*.dll',
@@ -108,18 +110,20 @@ jobs:
             foreach ($pattern in $patterns) {
               $dlls = @(Get-ChildItem (Join-Path $env:CUDA_PATH 'bin') -Filter $pattern)
               if ($dlls.Count -eq 0) { throw "Missing CUDA runtime: $pattern" }
-              $dlls | Copy-Item -Destination $stage
+              $dlls | Copy-Item -Destination $bin
             }
-            Copy-Item (Join-Path $env:CUDA_PATH 'EULA.txt') (Join-Path $stage 'CUDA-EULA.txt')
+            Copy-Item (Join-Path $env:CUDA_PATH 'EULA.txt') (Join-Path $bin 'CUDA-EULA.txt')
             @'
           Windows x86_64 CUDA 12.8 build (PTX compute capability 7.5).
           Requires NVIDIA Turing or newer (e.g. GTX 16 / RTX 20 or later)
           and an NVIDIA driver supporting CUDA 12.8 (Windows 570.65 or newer).
-          Extract ALL files into one folder; run karaoke-cli.exe --device cuda.
+          Extract the archive preserving its bin subfolder.
+          Run karaoke-cli.exe --device cuda from the archive root.
+          Keep bin beside karaoke-cli.exe; it contains all bundled CUDA files.
           CUDA Toolkit is not required on the user's machine.
           CUDA DLLs are NVIDIA redistributables; see CUDA-EULA.txt.
           Built on a GPU-less runner: GPU inference has NOT been tested.
-          '@ | Set-Content (Join-Path $stage 'README-CUDA.txt')
+          '@ | Set-Content (Join-Path $bin 'README-CUDA.txt')
           }
           Compress-Archive -Path "$stage/*" -DestinationPath "dist/$name.zip"
           $hash = (Get-FileHash "dist/$name.zip" -Algorithm SHA256).Hash.ToLower()

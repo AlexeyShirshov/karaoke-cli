@@ -1077,7 +1077,6 @@ pub fn run_file_with_chunks(
             )));
         }
         let transcription_started = Instant::now();
-        let transcription_activity = Activity::start("loading Whisper / transcribing vocals");
         let device = separator.device_choice();
         log::info!("transcription started (device={device:?})");
         let mut transcriber = Transcriber::load(assets, device)?;
@@ -1095,7 +1094,6 @@ pub fn run_file_with_chunks(
             "transcription finished ({} elapsed)",
             format_duration(transcription_started.elapsed())
         );
-        drop(transcription_activity);
         log::info!("releasing Whisper model");
         {
             let _activity = Activity::start("releasing Whisper model");

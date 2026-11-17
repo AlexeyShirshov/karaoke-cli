@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
 
 use candle_core::{DType, Device};
 use candle_nn::{VarBuilder, VarMap};
@@ -23,6 +23,115 @@ use karaoke_cli::pipeline::{
     run_file_with_chunks, separate_and_transcribe_file, trim_window, ChunkConfig, FileRequest,
     InferenceOverrides, OutputFormat, TranscriptionRequest,
 };
+
+#[test]
+fn cli_version_and_help_include_candle_roformer_version() {
+    let expected = format!(
+        "karaoke-cli {} (candle-roformer {})",
+        env!("CARGO_PKG_VERSION"),
+        env!("CANDLE_ROFORMER_VERSION")
+    );
+    for flag in ["--version", "-V", "--help", "-h"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_karaoke-cli"))
+            .arg(flag)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{flag}: {:?}", output);
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(stdout.lines().next(), Some(expected.as_str()), "{flag}");
+    }
+}
+
+fn scripted_wizard(directory: &Path, answers: &str) -> Output {
+    use std::io::Write;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_karaoke-cli"))
+        .current_dir(directory)
+        .arg("--wizard")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(answers.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn wizard_cancels_and_bare_redirected_launch_does_not_prompt() {
+    let dir = tempfile::tempdir().unwrap();
+    for answers in ["5\n", "", ":q\n"] {
+        let result = scripted_wizard(dir.path(), answers);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert!(String::from_utf8_lossy(&result.stdout).contains("Отменено."));
+    }
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+    let result = Command::new(env!("CARGO_BIN_EXE_karaoke-cli"))
+        .current_dir(dir.path())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stdout).contains("Usage:"));
+    assert!(!String::from_utf8_lossy(&result.stdout).contains("Что сделать?"));
+}
+
+#[test]
+fn wizard_processes_local_assets_through_existing_pipeline() {
+    let dir = tempfile::tempdir().unwrap();
+    tiny_separator_assets(dir.path());
+    write_wav_f32(
+        dir.path().join("song.wav"),
+        &AudioBuffer {
+            sample_rate: 44_100,
+            channels: 1,
+            planar: (0..2000).map(|i| (i as f32 * 0.05).sin() * 0.4).collect(),
+        },
+    )
+    .unwrap();
+    let answers = [
+        "",
+        "song.wav",
+        "",
+        "6",
+        "tiny_sep.safetensors",
+        "",
+        "",
+        "n",
+        "n",
+        "1",
+        "out",
+        "1",
+        "2",
+        "0",
+        "n",
+        "y",
+        "",
+    ]
+    .join("\n");
+    let result = scripted_wizard(dir.path(), &answers);
+    assert!(
+        result.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(dir
+        .path()
+        .join("out/song_(Instrumental)_tiny_sep.wav")
+        .is_file());
+    assert!(!dir.path().join("out/song_(Vocals)_tiny_sep.wav").exists());
+    assert!(!dir.path().join("models").exists());
+}
 
 fn tmpdir(name: &str) -> PathBuf {
     let mut p = std::env::temp_dir();
@@ -178,6 +287,118 @@ fn tiny_separator_assets_with_stems(dir: &Path, num_stems: usize) -> LocalSepara
     let config = dir.join("tiny_sep.yaml");
     fs::write(&config, yaml).unwrap();
     LocalSeparationAssets::new(model, config)
+}
+
+#[test]
+fn cli_download_mode_reuses_models_subfolder_for_separator_and_whisper() {
+    let dir = tempfile::tempdir().unwrap();
+    let models = dir.path().join("models");
+    let whisper = models.join("whisper-tiny");
+    fs::create_dir_all(&whisper).unwrap();
+    let separator = tiny_separator_assets(&models);
+    let separator_before = fs::read(&separator.checkpoint).unwrap();
+    write_model(&whisper);
+    write_tokenizer(&whisper);
+    write_wav_f32(
+        dir.path().join("song.wav"),
+        &AudioBuffer {
+            sample_rate: 44_100,
+            channels: 1,
+            planar: (0..2000).map(|i| (i as f32 * 0.05).sin() * 0.4).collect(),
+        },
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_karaoke-cli"))
+        .current_dir(dir.path())
+        .args([
+            "song.wav",
+            "--model",
+            "tiny_sep.safetensors",
+            "--download_models",
+            "--transcribe",
+            "--whisper_size",
+            "tiny",
+            "--output_dir",
+            "out",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(dir.path().join("out/song_(Vocals)_tiny_sep.txt").is_file());
+    assert_eq!(fs::read(&separator.checkpoint).unwrap(), separator_before);
+    assert!(!String::from_utf8_lossy(&result.stderr).contains("downloading model asset"));
+}
+
+#[test]
+fn cli_download_flag_keeps_diagnostics_offline() {
+    let dir = tempfile::tempdir().unwrap();
+    for flag in ["--list_models", "--env_info"] {
+        let result = Command::new(env!("CARGO_BIN_EXE_karaoke-cli"))
+            .current_dir(dir.path())
+            .args([flag, "--download_models", "--model", "missing.safetensors"])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn cli_short_model_name_prepares_without_audio_and_reports_resolved_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    let models = dir.path().join("models");
+    fs::create_dir(&models).unwrap();
+    fs::write(
+        models.join("mbr_instfv6n_gabox.safetensors"),
+        b"cached weights",
+    )
+    .unwrap();
+    fs::write(
+        models.join("mbr_instfv6n_gabox_config.yaml"),
+        b"cached config",
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_karaoke-cli"))
+        .current_dir(dir.path())
+        .args(["--model", "mbr_instfv6n_gabox", "--download_models"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(fs::read_dir(&models).unwrap().count(), 2);
+    assert!(!String::from_utf8_lossy(&result.stderr).contains("loading separation model"));
+
+    let result = Command::new(env!("CARGO_BIN_EXE_karaoke-cli"))
+        .current_dir(dir.path())
+        .args([
+            "--model",
+            "mbr_instfv6n_gabox",
+            "--download_models",
+            "--env_info",
+        ])
+        .output()
+        .unwrap();
+    assert!(result.status.success());
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    assert!(
+        stdout.contains("mbr_instfv6n_gabox.safetensors"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("mbr_instfv6n_gabox_config.yaml"),
+        "{stdout}"
+    );
 }
 
 #[test]

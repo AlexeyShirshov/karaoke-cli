@@ -25,7 +25,8 @@ has the MSVC runtime linked statically: unpack and run, no toolchain or extra DL
 The separate Windows `cuda12` archive is built with CUDA 12.8 for NVIDIA Turing
 or newer GPUs (compute capability 7.5+, e.g. GTX 16 / RTX 20 and later).
 It requires an NVIDIA Windows driver supporting CUDA 12.8 (570.65 or newer).
-Extract **all** files, keeping the bundled CUDA DLLs beside `karaoke-cli.exe`;
+Extract **all** files, keeping the `bin` folder beside `karaoke-cli.exe`
+(all bundled CUDA DLLs, `CUDA-EULA.txt` and `README-CUDA.txt` are inside `bin`);
 installing CUDA Toolkit is not required. Select the GPU explicitly with
 `--device cuda` (the default remains CPU). `--env_info` reports compiled features
 and device availability. CUDA archives are build/package checked only: hosted
@@ -54,6 +55,31 @@ build; bump the version in `Cargo.toml` after a release of `candle-roformer`.
 On Windows paths use the native form, and quote paths that contain spaces or
 an apostrophe: `karaoke-cli "C:\Users\me\Music\Ya Zdes'.mp3" --model_filename ...`
 
+## Interactive wizard
+
+Run `karaoke-cli` **without arguments in a terminal** to open the interactive
+wizard (Russian prompts), or use `karaoke-cli --wizard` explicitly.
+
+The menu offers audio processing, model download/preparation, system diagnostics,
+and the local model catalog. For processing it asks for one or more files/folders
+(quoted paths with spaces are accepted), a built-in model or local weights/YAML,
+model directories, optional Whisper/language, download permission, CPU/CUDA/Metal
+(only backends compiled into this binary), output directory/format, stems,
+chunk duration, and overwrite permission.
+
+Enter accepts the displayed default; `:q`, Ctrl+C or end-of-input cancels.
+Before downloads or processing the wizard shows an equivalent reusable multiline
+command: PowerShell on Windows (backtick continuation, double-quoted paths) or
+Bash on Linux/macOS (backslash continuation, shell-escaped paths). Flags remain
+unquoted; spaces, apostrophes and shell metacharacters are escaped.
+It then asks for confirmation (default **no**). No shell command is executed:
+the answers go through the same CLI validation and processing pipeline.
+Files are not overwritten unless explicitly requested.
+
+Existing CLI calls remain non-interactive. With redirected input/output, a bare
+launch prints help and fails instead of waiting for input; explicit `--wizard`
+also supports scripted answers on stdin.
+
 ## Separate
 
 ```sh
@@ -75,7 +101,7 @@ Options:
 | `--model_filename`, `--model` | Local `candle-roformer`-supported safetensors checkpoint; family is selected by its profile |
 | `--config` | Model profile YAML (default: `<model-stem>.yaml` next to the model) |
 | `--model_file_dir` | Directory used to resolve the two paths above |
-| `--output_dir`, `--output` | Output directory (default: `.`) |
+| `--output_dir`, `--output` | Output directory (default: `out`, relative to the current working directory) |
 | `--output_format wav, flac, or mp3` | Output container (default: WAV, IEEE-f32, no integer conversion or dithering); FLAC is lossless 24-bit PCM and MP3 is lossy |
 | `--output_bitrate <kbps>` | MP3 CBR bitrate (default: 192 kbps); only valid with `--output_format mp3` |
 | `--sample_rate <Hz>` | Resample output using `candle-roformer`'s resampler; omitted means preserve the input rate |
@@ -270,7 +296,12 @@ with `name`, `filename`, `architecture`, `stems`, `SDR`, `checksum`, and
 `--models_manifest <path>`. It may be a top-level array or an object containing
 `models: [...]`; each row requires `name`, `filename`, `architecture`, and a
 non-empty `stems` list. `SDR`, `checksum`, and `weights` are optional metadata.
-No weights are fetched or included.
+No weights are fetched by listing the catalog, or included in releases.
+An optional `download` object provides `model_url`, `config_url`, and optional
+`sha256` / `config_sha256` fields. Download
+checksums are separate from the legacy `checksum` metadata, which may describe
+a source `.ckpt`. `aliases` supplies short model names; `config_filename`
+can specify a companion YAML basename other than `<model-stem>.yaml`.
 
 ## Diagnostics
 
@@ -284,8 +315,79 @@ unchanged at the default level.
 
 ## Model files
 
-Weights are supplied locally. This project never downloads, bundles, caches or
-redistributes them.
+Weights are local by default. To download missing files automatically, explicitly
+add `--download_models`. Relative bare model/config filenames then use the
+`models` subfolder of the **current working directory**; `--model_file_dir`
+overrides it, and explicit paths are preserved.
+
+```sh
+karaoke-cli song.wav --model mbr_instfv6n_gabox --download_models
+karaoke-cli song.wav --model mbr_instfv6n_gabox --download_models --transcribe --whisper_size large-v3
+karaoke-cli --model mbr_instfv6n_gabox --download_models
+```
+
+**No manifest, URLs or `--config` are needed for built-in models.** Use a
+filename without `.safetensors` or one of these aliases:
+
+| Short name | Model |
+|---|---|
+| `mbr_instfv6n_gabox` / `gabox-inst-fv6n` | Gabox Inst FV6N |
+| `hyperace` / `hyperace-v2-inst` | Unwa BS-RoFormer HyperACE v2 Inst |
+| `viperx` / `viperx-1297` | BS-RoFormer Viperx 1297 |
+| `voc_fv7` / `gabox-voc-fv7` | Gabox vocals FV7 |
+| `melband` / `kijai` | Kijai MelBandRoformer FP32 |
+
+The last example downloads/prepares files only, without processing audio.
+Short names also reuse files in `models` without `--download_models`, offline.
+Gabox Inst FV6N uses `models/mbr_instfv6n_gabox.safetensors` and
+`models/mbr_instfv6n_gabox_config.yaml`. Explicit model/config paths are preserved.
+
+All built-in separator sources are SHA-256 checked. If the published file is
+`.ckpt`, preparation is automatic **inside the CLI, without Python**: verify the
+pinned source, check every tensor name/shape against candle-roformer's schema,
+convert finite floating tensors to F32, and atomically install `.safetensors`.
+The source `.ckpt` is cached beside the output to allow retrying conversion
+without another transfer, so allow disk space for both files (about 1.83 GB
+total for Gabox Inst FV6N). Preparation uses CPU RAM, not GPU memory.
+The Gabox profile's target name is normalized to `instrumental` for the runtime.
+
+A custom `--models_manifest` is optional, for models outside the built-in catalog:
+
+```json
+[
+  {
+    "name": "My converted model",
+    "filename": "my-model.safetensors",
+    "architecture": "BSRoformer",
+    "stems": ["vocals", "instrumental"],
+    "download": {
+      "model_url": "https://example.com/my-model.safetensors",
+      "config_url": "https://example.com/my-model.yaml"
+    }
+  }
+]
+```
+
+Supply `download.sha256` and `download.config_sha256` (64 hex characters) when
+available. Use only trusted model/config sources. Existing files are reused
+without overwriting or rechecking; cached source `.ckpt` files are rehashed
+before conversion. `--overwrite` applies to audio outputs only.
+Transfers stream to temporary files; HTTP, truncation and checksum failures never
+install a partial model. Progress is logged at info level. Interrupted downloads
+restart, rather than resume.
+Custom PyTorch sources use `download.format: "pytorch"` and require
+`download.sha256`; this checksum describes the source `.ckpt`, not the output.
+No external Python/pickle code is executed.
+
+With `--transcribe --download_models`, missing Whisper assets are downloaded
+from `openai/whisper-<size>` on Hugging Face into `models/whisper-<size>/`
+(`config.json`, `tokenizer.json`, `model.safetensors`). The default size is
+`small`; `--whisper_size` accepts `tiny`, `base`, `small`, `medium`, their `.en`
+variants, `large-v2`, and `large-v3`. Whisper downloads use the upstream `main`
+revision over HTTPS, without a pinned checksum. `--whisper_model_dir` and explicit
+asset paths override the defaults; use matching files from one variant.
+Without `--download_models`, no network access is performed. `--list_models`
+and `--env_info` remain offline even when that flag is present.
 
 | Model | Config | Weights |
 |---|---|---|
@@ -293,6 +395,7 @@ redistributes them.
 | BS-RoFormer Viperx 1297 | `configs/bs_roformer_viperx_1297.yaml` in the crate | convert the source `.ckpt` with `candle-roformer`'s `tools/convert_bs_roformer.py`; the catalog checksum describes the source checkpoint |
 | GaboxR67 `voc_fv7` | `configs/voc_fv7.yaml` in the crate | convert `voc_fv7.ckpt` with `candle-roformer`'s `tools/convert_voc_fv7.py` |
 | KimberleyJSN / Kijai mirror | `configs/kijai_melband_384.yaml` in the crate | `MelBandRoformer_fp32.safetensors` as published |
+| Gabox Inst FV6N | automatically fetched and adapted author profile | automatically converted source `.ckpt` |
 | Whisper (tiny..large, `*.en` or multilingual) | `config.json` from the checkpoint | `model.safetensors` + `tokenizer.json` |
 
 HyperACE v2 Inst requires the adapted
@@ -304,14 +407,15 @@ profile, not the author's unmodified `config.yaml`: it explicitly selects
 Do not remove the `training` section or rename a checkpoint instead of converting
 it. Use `--single_stem instrumental` if only music is needed, or add
 `--transcribe` and the Whisper options for music plus lyrics without vocal audio.
-No model weights are downloaded by the CLI.
+With `--download_models`, the matching adapted profile and weights are prepared
+automatically.
 
 ### Whisper assets
 
 Whisper needs its own directory holding `config.json`, `tokenizer.json` and
 `model.safetensors` from the same checkpoint, in the Candle fp32 layout; f32
-only, no GGUF/quantized path. Two helper scripts fetch them from
-`openai/whisper-<size>` on Hugging Face, which the CLI itself never does:
+only, no GGUF/quantized path. The CLI can fetch them with `--download_models`;
+the following helper scripts are an alternative for manual preparation:
 
 ```sh
 ./scripts/fetch-whisper.sh small /models/whisper-small

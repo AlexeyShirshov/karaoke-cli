@@ -6,6 +6,8 @@
 //! argument parser.
 
 pub mod catalog;
+mod checkpoint;
+pub mod download;
 pub mod pipeline;
 pub mod status;
 
